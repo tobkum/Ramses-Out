@@ -198,14 +198,21 @@ class RamsesReviewWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels([
             "", "Shot", "Sequence", "Step", "Format", "Size (MB)", "Status"
         ])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 30)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        # Column sizing: Fixed widths for consistent layout
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(0, 30)  # Checkbox
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(1, 100)  # Shot ID (e.g., SH010)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(2, 80)  # Sequence (e.g., SEQ01)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(3, 90)  # Step (COMP, LAYOUT, etc.)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(4, 70)  # Format (mp4, mov) - wider for uppercase header
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(5, 80)  # Size (MB)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Status stretches
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table)

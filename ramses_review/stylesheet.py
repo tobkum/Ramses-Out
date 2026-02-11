@@ -1,6 +1,6 @@
 """Unified stylesheet for Ramses Review - matches Ramses-Ingest theme."""
 
-# Dark theme with cyan (#00bff3) accents
+# Dark theme with darker blue (#0a7fad) accents
 STYLESHEET = """
 QMainWindow {
     background-color: #121212;
@@ -19,27 +19,29 @@ QDialog {
 QLabel {
     color: #cccccc;
     background-color: transparent;
+    font-size: 12px;
 }
 
 QLabel#headerLabel {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: bold;
     color: #ffffff;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     background-color: transparent;
 }
 
 QLabel#toolLabel {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: bold;
     color: #ffffff;
     background-color: transparent;
 }
 
 QLabel#statusLabel {
-    font-size: 11px;
+    font-size: 10px;
     color: #888888;
     background-color: transparent;
+    font-weight: bold;
 }
 
 QLabel#statusReady {
@@ -65,15 +67,16 @@ QPushButton {
     padding: 8px 16px;
     color: #e0e0e0;
     font-weight: 500;
+    font-size: 12px;
 }
 
 QPushButton:hover {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3d3d3d, stop:1 #333333);
-    border-color: #00bff3;
+    border-color: #0a7fad;
 }
 
 QPushButton:pressed {
-    background-color: #00bff3;
+    background-color: #094771;
     color: white;
 }
 
@@ -85,7 +88,7 @@ QPushButton:disabled {
 
 /* Primary action button */
 QPushButton#primaryButton {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #00bff3, stop:1 #0095c2);
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0a7fad, stop:1 #094771);
     border: none;
     color: #ffffff;
     font-weight: bold;
@@ -94,7 +97,7 @@ QPushButton#primaryButton {
 }
 
 QPushButton#primaryButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #33ccff, stop:1 #00bff3);
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0d95c7, stop:1 #0a7fad);
 }
 
 QPushButton#primaryButton:disabled {
@@ -114,7 +117,7 @@ QPushButton#toolCard {
 }
 
 QPushButton#toolCard:hover {
-    border-color: #00bff3;
+    border-color: #0a7fad;
     background-color: #252526;
 }
 
@@ -129,10 +132,11 @@ QLineEdit {
     border-radius: 4px;
     padding: 6px 12px;
     color: #ffffff;
+    font-size: 12px;
 }
 
 QLineEdit:focus {
-    border-color: #00bff3;
+    border-color: #0a7fad;
     background-color: #252526;
 }
 
@@ -180,7 +184,7 @@ QCheckBox::indicator:checked {
 }
 
 QCheckBox::indicator:hover {
-    border-color: #00bff3;
+    border-color: #0a7fad;
 }
 
 /* --- Frames/Panels --- */
@@ -216,7 +220,7 @@ QGroupBox::title {
     subcontrol-position: top left;
     padding: 0 8px;
     background-color: #121212;
-    color: #00bff3;
+    color: #0a7fad;
 }
 
 /* --- Text Edit --- */
@@ -229,7 +233,7 @@ QTextEdit {
 }
 
 QTextEdit:focus {
-    border-color: #00bff3;
+    border-color: #0a7fad;
 }
 
 /* --- Scroll Bars --- */
@@ -322,11 +326,13 @@ QTableWidget {
     selection-background-color: #094771;
     selection-color: #ffffff;
     alternate-background-color: #1e1e1e;
+    font-size: 12px;
 }
 
 QTableWidget::item {
     padding: 6px;
     color: #e0e0e0;
+    font-size: 12px;
 }
 
 QTableWidget::item:selected {
@@ -338,17 +344,20 @@ QTableWidget::item:hover {
 }
 
 QHeaderView::section {
-    background-color: #1e1e1e;
-    color: #00bff3;
+    background-color: #2d2d2d;
+    color: #cccccc;
     padding: 8px;
     border: none;
-    border-bottom: 2px solid #00bff3;
-    border-right: 1px solid #2d2d2d;
+    border-bottom: 1px solid #444444;
+    border-right: 1px solid #1a1a1a;
     font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 QHeaderView::section:horizontal {
-    border-bottom: 2px solid #00bff3;
+    border-bottom: 1px solid #444444;
 }
 
 QHeaderView::section:hover {
