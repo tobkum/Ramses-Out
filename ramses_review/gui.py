@@ -72,6 +72,11 @@ class CollectionThread(QThread):
         super().__init__()
         self.items = items
         self.dest = dest
+        self._cancel_requested = False
+
+    def cancel(self):
+        """Request cancellation of the collection."""
+        self._cancel_requested = True
 
     def run(self):
         """Run collection in background."""
@@ -80,7 +85,8 @@ class CollectionThread(QThread):
             success = collector.collect_files(
                 self.items,
                 self.dest,
-                progress_callback=self._emit_progress
+                progress_callback=self._emit_progress,
+                cancel_check=lambda: self._cancel_requested
             )
             self.finished.emit(success)
         except Exception as e:
@@ -300,8 +306,29 @@ class RamsesReviewWindow(QMainWindow):
             # Save config after dialog is accepted
             save_config(self.config)
 
+    def _open_folder(self, folder_path: str):
+        """Open folder in file manager (cross-platform)."""
+        import platform
+        import subprocess
+
+        try:
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(folder_path)
+            elif system == "Darwin":  # macOS
+                subprocess.run(["open", folder_path])
+            else:  # Linux and others
+                subprocess.run(["xdg-open", folder_path])
+        except Exception as e:
+            # If opening fails, just log it - not critical
+            print(f"Could not open folder: {e}")
+
     def _scan_project(self):
         """Scan project for preview files."""
+        # Check if scan is already running
+        if self.scan_thread and self.scan_thread.isRunning():
+            return
+
         if not self.current_project:
             QMessageBox.warning(
                 self,
@@ -439,9 +466,14 @@ class RamsesReviewWindow(QMainWindow):
 
             # Status with color
             status_item = QTableWidgetItem(item.status)
-            if item.is_ready:
+            if "Updated" in item.status:
+                # Orange/yellow for updated previews that need re-upload
+                status_item.setForeground(Qt.GlobalColor.yellow)
+            elif item.is_ready:
+                # Green for new previews
                 status_item.setForeground(Qt.GlobalColor.green)
             else:
+                # Gray for already sent
                 status_item.setForeground(Qt.GlobalColor.gray)
             self.table.setItem(row, 6, status_item)
 
@@ -520,6 +552,8 @@ class RamsesReviewWindow(QMainWindow):
         self.collection_thread.error.connect(
             lambda err: self._on_collection_error(err, progress)
         )
+        # Connect cancel button
+        progress.canceled.connect(self.collection_thread.cancel)
         self.collection_thread.start()
 
     def _on_collection_progress(self, dialog: QProgressDialog, current: int, total: int, filename: str):
@@ -550,8 +584,8 @@ class RamsesReviewWindow(QMainWindow):
                 f"Package: {package_name}"
             )
 
-            # Open folder
-            os.startfile(dest)
+            # Open folder in file manager (cross-platform)
+            self._open_folder(dest)
         else:
             QMessageBox.critical(
                 self,

@@ -34,4 +34,4 @@ class PreviewItem:
     @property
     def is_ready(self) -> bool:
         """Check if preview is ready for review (not sent yet)."""
-        return self.status == "Ready"
+        return self.status.startswith("Ready")

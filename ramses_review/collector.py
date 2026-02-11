@@ -15,7 +15,8 @@ class PreviewCollector:
         self,
         items: List[PreviewItem],
         dest: str,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None
     ) -> bool:
         """Collect preview files to destination folder.
 
@@ -23,18 +24,27 @@ class PreviewCollector:
             items: List of preview items to collect
             dest: Destination folder path
             progress_callback: Optional callback(current, total, filename)
+            cancel_check: Optional callback that returns True if cancellation requested
 
         Returns:
-            True if collection succeeded
+            True if collection succeeded, False if cancelled or failed
         """
         dest_path = Path(dest)
         dest_path.mkdir(parents=True, exist_ok=True)
 
         total = len(items)
+        copied_count = 0
+        failed_files = []
+
         for idx, item in enumerate(items, 1):
+            # Check for cancellation
+            if cancel_check and cancel_check():
+                return False
+
             source = Path(item.file_path)
 
             if not source.exists():
+                failed_files.append((source.name, "File not found"))
                 continue
 
             # Copy file to destination
@@ -45,10 +55,12 @@ class PreviewCollector:
 
             try:
                 shutil.copy2(source, dest_file)
-            except Exception:
-                return False
+                copied_count += 1
+            except Exception as e:
+                failed_files.append((source.name, str(e)))
 
-        return True
+        # Success if we copied at least some files and had no failures
+        return copied_count > 0 and len(failed_files) == 0
 
     def generate_shot_list(self, items: List[PreviewItem], project_name: str) -> str:
         """Generate shot list manifest text.

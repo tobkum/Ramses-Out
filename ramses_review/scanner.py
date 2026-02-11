@@ -88,8 +88,8 @@ class PreviewScanner:
         file_size = stat.st_size
         date_modified = datetime.fromtimestamp(stat.st_mtime)
 
-        # Check for marker file
-        marker_path, sent_date, status = self._check_marker(file_path.parent)
+        # Check for marker file and compare with preview modification time
+        marker_path, sent_date, status = self._check_marker(file_path.parent, date_modified)
 
         return PreviewItem(
             shot_id=shot_id,
@@ -121,24 +121,38 @@ class PreviewScanner:
             return f"SEQ{match.group(2)}" if match.group(2) else ""
         return ""
 
-    def _check_marker(self, preview_folder: Path) -> tuple[Optional[str], Optional[str], str]:
+    def _check_marker(self, preview_folder: Path, preview_modified: datetime) -> tuple[Optional[str], Optional[str], str]:
         """Check for review marker file in preview folder.
 
         Args:
             preview_folder: Path to _preview folder
+            preview_modified: Modification time of the preview file
 
         Returns:
             Tuple of (marker_path, sent_date, status)
         """
-        # Look for .review_sent_*.txt files
+        # Look for .review_sent_*.txt files and find the most recent one
+        marker_files = []
         for marker_file in preview_folder.glob('.review_sent_*.txt'):
-            # Extract date from filename: .review_sent_2026-02-11.txt
             match = re.search(r'\.review_sent_(\d{4}-\d{2}-\d{2})\.txt', marker_file.name)
             if match:
                 sent_date = match.group(1)
-                return str(marker_file), sent_date, f"Sent {sent_date}"
+                marker_stat = marker_file.stat()
+                marker_modified = datetime.fromtimestamp(marker_stat.st_mtime)
+                marker_files.append((marker_file, sent_date, marker_modified))
 
-        return None, None, "Ready"
+        if not marker_files:
+            return None, None, "Ready"
+
+        # Sort by modification time and get the most recent marker
+        marker_files.sort(key=lambda x: x[2], reverse=True)
+        most_recent_marker, sent_date, marker_modified = marker_files[0]
+
+        # Compare marker timestamp with preview modification time
+        if preview_modified > marker_modified:
+            return str(most_recent_marker), sent_date, "Ready (Updated)"
+
+        return str(most_recent_marker), sent_date, f"Sent {sent_date}"
 
     def filter_by_date(self, items: List[PreviewItem], date_range: str) -> List[PreviewItem]:
         """Filter preview items by date range.
