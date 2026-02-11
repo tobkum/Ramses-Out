@@ -119,6 +119,11 @@ class RamsesReviewWindow(QMainWindow):
         # Load configuration
         self.config = load_config()
 
+        # Cache sequences and steps from API (source of truth)
+        self.api_sequences: List[str] = []
+        self.api_steps: List[str] = []
+        self._cache_api_data()
+
         # Data
         self.all_previews: List[PreviewItem] = []
         self.filtered_previews: List[PreviewItem] = []
@@ -133,9 +138,45 @@ class RamsesReviewWindow(QMainWindow):
         # Build UI
         self._build_ui()
 
+        # Populate filter dropdowns from API
+        self._populate_filter_dropdowns()
+
         # Initial scan if project available
         if self.current_project:
             self._scan_project()
+
+    def _cache_api_data(self):
+        """Cache sequences and steps from Ramses API (source of truth)."""
+        if not self.current_project:
+            return
+
+        try:
+            # Get all sequences from API
+            sequences = self.current_project.sequences()
+            self.api_sequences = [seq.shortName() for seq in sequences if seq.shortName()]
+
+            # Get all shot production steps from API
+            from ramses.ram_step import StepType
+            steps = self.current_project.steps(StepType.SHOT_PRODUCTION)
+            self.api_steps = [step.shortName() for step in steps if step.shortName()]
+        except Exception as e:
+            print(f"Warning: Failed to cache API data: {e}")
+            self.api_sequences = []
+            self.api_steps = []
+
+    def _populate_filter_dropdowns(self):
+        """Populate filter dropdowns from API data (source of truth)."""
+        # Populate sequence filter from API
+        self.seq_filter.clear()
+        self.seq_filter.addItem("All Sequences")
+        for seq in sorted(self.api_sequences):
+            self.seq_filter.addItem(seq)
+
+        # Populate step filter from API
+        self.step_filter.clear()
+        self.step_filter.addItem("All Steps")
+        for step in sorted(self.api_steps):
+            self.step_filter.addItem(step)
 
     def _build_ui(self):
         """Build the user interface."""
@@ -226,17 +267,7 @@ class RamsesReviewWindow(QMainWindow):
         button_layout = QHBoxLayout()
         button_layout.setSpacing(12)
 
-        self.collect_btn = QPushButton("Collect to Folder")
-        self.collect_btn.setObjectName("primaryButton")
-        self.collect_btn.clicked.connect(self._collect_to_folder)
-        button_layout.addWidget(self.collect_btn)
-
-        self.mark_sent_btn = QPushButton("Mark as Sent")
-        self.mark_sent_btn.clicked.connect(self._mark_as_sent)
-        button_layout.addWidget(self.mark_sent_btn)
-
-        button_layout.addStretch()
-
+        # Secondary actions on left
         settings_btn = QPushButton("Settings")
         settings_btn.clicked.connect(self._show_settings)
         button_layout.addWidget(settings_btn)
@@ -244,6 +275,18 @@ class RamsesReviewWindow(QMainWindow):
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self._scan_project)
         button_layout.addWidget(refresh_btn)
+
+        button_layout.addStretch()
+
+        # Primary actions on right (matches Ramses-Ingest pattern)
+        self.mark_sent_btn = QPushButton("Mark as Sent")
+        self.mark_sent_btn.clicked.connect(self._mark_as_sent)
+        button_layout.addWidget(self.mark_sent_btn)
+
+        self.collect_btn = QPushButton("Collect to Folder")
+        self.collect_btn.setObjectName("primaryButton")
+        self.collect_btn.clicked.connect(self._collect_to_folder)
+        button_layout.addWidget(self.collect_btn)
 
         layout.addLayout(button_layout)
 
@@ -367,7 +410,6 @@ class RamsesReviewWindow(QMainWindow):
     def _on_scan_finished(self, previews: List[PreviewItem]):
         """Handle scan completion."""
         self.all_previews = previews
-        self._update_filter_options()
         self._apply_filters()
 
         # Update UI
@@ -383,36 +425,6 @@ class RamsesReviewWindow(QMainWindow):
             f"Error scanning project: {error}"
         )
         self.table.setEnabled(True)
-
-    def _update_filter_options(self):
-        """Update filter dropdown options based on scanned data."""
-        # Get unique sequences and steps
-        sequences = set()
-        steps = set()
-
-        for item in self.all_previews:
-            if item.sequence_id:
-                sequences.add(item.sequence_id)
-            if item.step_id:
-                steps.add(item.step_id)
-
-        # Update sequence filter
-        current_seq = self.seq_filter.currentText()
-        self.seq_filter.clear()
-        self.seq_filter.addItem("All Sequences")
-        for seq in sorted(sequences):
-            self.seq_filter.addItem(seq)
-        if current_seq in sequences:
-            self.seq_filter.setCurrentText(current_seq)
-
-        # Update step filter
-        current_step = self.step_filter.currentText()
-        self.step_filter.clear()
-        self.step_filter.addItem("All Steps")
-        for step in sorted(steps):
-            self.step_filter.addItem(step)
-        if current_step in steps:
-            self.step_filter.setCurrentText(current_step)
 
     def _apply_filters(self):
         """Apply current filters to preview list."""
