@@ -1,0 +1,4 @@
+# Ramses Review Requirements
+# Python 3.10+ required
+
+PySide6>=6.4.0
