@@ -163,9 +163,13 @@ class TestPreviewScanner(unittest.TestCase):
         """Test filtering previews by sequence."""
         previews = self.scanner.scan_project()
 
-        # Both shots should be in SEQ01
-        filtered = self.scanner.filter_by_sequence(previews, "SEQ01")
-        self.assertEqual(len(filtered), 0)  # Sequence extraction from folder name
+        # Scanner leaves sequence_id empty (resolved later via API)
+        for p in previews:
+            self.assertEqual(p.sequence_id, "")
+
+        # Filtering by "All" should return everything
+        filtered = self.scanner.filter_by_sequence(previews, "All")
+        self.assertEqual(len(filtered), 2)
 
     def test_filter_by_step(self):
         """Test filtering previews by step."""
@@ -188,19 +192,39 @@ class TestPreviewScanner(unittest.TestCase):
         previews = scanner.scan_project()
         self.assertEqual(len(previews), 0)
 
-    def test_invalid_filename_ignored(self):
-        """Test that invalid filenames are ignored."""
+    def test_nonstandard_filename_uses_folder_fallback(self):
+        """Test that non-standard filenames are parsed from folder structure."""
         shot_step = self.shots_folder / "TEST_S_SH030" / "TEST_S_SH030_LAYOUT"
         preview_folder = shot_step / "_preview"
         preview_folder.mkdir(parents=True)
 
-        # Create file with invalid name
+        # Create file with non-standard name inside a valid folder structure
+        preview_file = preview_folder / "some_random_name.mp4"
+        preview_file.write_text("fake video")
+
+        previews = self.scanner.scan_project()
+
+        # Should find all 3 -- the non-standard filename is resolved from folders
+        self.assertEqual(len(previews), 3)
+
+        preview3 = next(p for p in previews if p.shot_id == "SH030")
+        self.assertEqual(preview3.project_id, "TEST")
+        self.assertEqual(preview3.shot_id, "SH030")
+        self.assertEqual(preview3.step_id, "LAYOUT")
+
+    def test_invalid_folder_structure_ignored(self):
+        """Test that files in non-Ramses folder structures are ignored."""
+        # Create a folder structure that doesn't follow Ramses naming
+        bad_folder = self.shots_folder / "random_folder" / "subfolder"
+        preview_folder = bad_folder / "_preview"
+        preview_folder.mkdir(parents=True)
+
         invalid = preview_folder / "invalid_name.mp4"
         invalid.write_text("fake video")
 
         previews = self.scanner.scan_project()
 
-        # Should still find the 2 valid ones, ignore invalid
+        # Should still find only the 2 valid ones
         self.assertEqual(len(previews), 2)
 
     def tearDown(self):

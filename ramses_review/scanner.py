@@ -63,33 +63,55 @@ class PreviewScanner:
     def _parse_preview_file(self, file_path: Path) -> Optional[PreviewItem]:
         """Parse a preview file and create PreviewItem.
 
+        Tries to extract project/shot/step from the filename first
+        (expected format: {PROJECT}_S_{SHOT}_{STEP}.{ext}).
+        Falls back to extracting from the folder structure when the
+        filename doesn't match.
+
         Args:
             file_path: Path to the preview file
 
         Returns:
             PreviewItem or None if parsing fails
         """
-        # Expected format: {PROJECT}_S_{SHOT}_{STEP}.{ext}
+        project_id = None
+        shot_id = None
+        step_id = None
+
+        # Try filename-based parsing: {PROJECT}_S_{SHOT}_{STEP}.{ext}
         filename = file_path.stem
         parts = filename.split('_S_')
 
-        if len(parts) != 2:
-            return None
+        if len(parts) == 2:
+            rest_parts = parts[1].split('_', 1)
+            if len(rest_parts) == 2:
+                project_id = parts[0]
+                shot_id = rest_parts[0]
+                step_id = rest_parts[1]
 
-        project_id = parts[0]
-        rest = parts[1]
+        # Fallback: extract from folder structure
+        # _preview -> step_folder -> shot_folder -> 05-SHOTS
+        if not all((project_id, shot_id, step_id)):
+            step_folder = file_path.parent.parent   # e.g. Testprojec_S_120_Comp
+            shot_folder = step_folder.parent         # e.g. Testprojec_S_120
 
-        # Split shot and step
-        rest_parts = rest.split('_', 1)
-        if len(rest_parts) != 2:
-            return None
+            shot_parts = shot_folder.name.split('_S_')
+            if len(shot_parts) != 2:
+                return None
 
-        shot_id = rest_parts[0]
-        step_id = rest_parts[1]
+            project_id = shot_parts[0]
+            shot_id = shot_parts[1]
 
-        # Extract sequence from shot folder name
-        shot_folder = file_path.parent.parent
-        sequence_id = self._extract_sequence(shot_folder.name)
+            # Step ID: strip the shot folder prefix from step folder name
+            step_name = step_folder.name
+            prefix = shot_folder.name + '_'
+            if step_name.startswith(prefix):
+                step_id = step_name[len(prefix):]
+            else:
+                step_id = step_name
+
+        # Sequence is resolved later via the Ramses API (see gui._resolve_sequences)
+        sequence_id = ""
 
         # Get file info
         stat = file_path.stat()
@@ -112,22 +134,6 @@ class PreviewScanner:
             marker_path=marker_path,
             sent_date=sent_date
         )
-
-    def _extract_sequence(self, shot_folder_name: str) -> str:
-        """Extract sequence ID from shot folder name.
-
-        Args:
-            shot_folder_name: Name of the shot folder
-
-        Returns:
-            Sequence ID or empty string
-        """
-        # Try to extract sequence from folder name
-        # Common patterns: SEQ01, SQ01, 01, etc.
-        match = re.search(r'(SEQ|SQ)?(\d+)', shot_folder_name, re.IGNORECASE)
-        if match:
-            return f"SEQ{match.group(2)}" if match.group(2) else ""
-        return ""
 
     def _check_marker(self, preview_folder: Path, preview_modified: datetime) -> tuple[Optional[str], Optional[str], str]:
         """Check for review marker file in preview folder.

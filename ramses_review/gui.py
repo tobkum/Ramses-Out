@@ -254,6 +254,7 @@ class RamsesReviewWindow(QMainWindow):
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(5, 80)  # Size (MB)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Status stretches
+        self.table.verticalHeader().setDefaultSectionSize(42)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         layout.addWidget(self.table)
@@ -407,9 +408,29 @@ class RamsesReviewWindow(QMainWindow):
         self.last_scan_label.setText("Last Scan: Scanning...")
         self.table.setEnabled(False)
 
+    def _resolve_sequences(self, previews: List[PreviewItem]):
+        """Resolve sequence IDs for previews via the Ramses API."""
+        if not self.current_project:
+            return
+
+        try:
+            # Build shot_shortName -> sequence_shortName lookup
+            shot_seq_map = {}
+            for seq in self.current_project.sequences():
+                seq_name = seq.shortName()
+                for shot in seq.shots():
+                    shot_seq_map[shot.shortName()] = seq_name
+
+            for preview in previews:
+                if not preview.sequence_id and preview.shot_id in shot_seq_map:
+                    preview.sequence_id = shot_seq_map[preview.shot_id]
+        except Exception as e:
+            print(f"Warning: Failed to resolve sequences: {e}")
+
     def _on_scan_finished(self, previews: List[PreviewItem]):
         """Handle scan completion."""
         self.all_previews = previews
+        self._resolve_sequences(self.all_previews)
         self._apply_filters()
 
         # Update UI
@@ -470,6 +491,7 @@ class RamsesReviewWindow(QMainWindow):
                 checkbox.setChecked(True)
             checkbox.stateChanged.connect(self._update_selection_label)
             checkbox_widget = QWidget()
+            checkbox_widget.setStyleSheet("background: transparent;")
             checkbox_layout = QHBoxLayout(checkbox_widget)
             checkbox_layout.addWidget(checkbox)
             checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
