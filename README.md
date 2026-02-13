@@ -1,8 +1,8 @@
-# Ramses Review
+# Ramses Out
 
 **Preview collection and review preparation tool for Ramses pipeline.**
 
-Ramses Review scans your Ramses project for preview files, tracks upload history, and helps you collect and package previews for fTrack review submission.
+Ramses Out scans your Ramses project for preview files, tracks upload history, and helps you collect and package previews for fTrack review submission.
 
 ## Features
 
@@ -16,7 +16,7 @@ Ramses Review scans your Ramses project for preview files, tracks upload history
 
 ## Project Structure
 
-Ramses Review scans for preview files in the standard Ramses structure:
+Ramses Out scans for preview files in the standard Ramses structure:
 
 ```
 PROJECT/
@@ -34,14 +34,14 @@ PROJECT/
 ### From Source (Development)
 
 ```bash
-cd Ramses-Review
+cd Ramses-Out
 pip install -r requirements.txt
-python -m ramses_review
+python -m ramses_out
 ```
 
 ### Compiled Executable
 
-Download `RamsesReview.exe` from releases and place it in your Ramses tools directory.
+Download `RamsesOut.exe` from releases and place it in your Ramses tools directory.
 
 ## Usage
 
@@ -49,12 +49,12 @@ Download `RamsesReview.exe` from releases and place it in your Ramses tools dire
 
 **From Python:**
 ```bash
-python -m ramses_review
+python -m ramses_out
 ```
 
 **From exe:**
 ```bash
-RamsesReview.exe
+RamsesOut.exe
 ```
 
 ### Workflow
@@ -130,7 +130,7 @@ All submissions are logged to: `~/.ramses/upload_history.log`
 
 ## Configuration
 
-Ramses Review uses the common Ramses configuration:
+Ramses Out uses the common Ramses configuration:
 
 - **Windows**: `%appdata%/Ramses/Config/ramses_addons_settings.json`
 - **Linux**: `~/.config/Ramses/Config/ramses_addons_settings.json`
@@ -163,8 +163,8 @@ Ramses Review uses the common Ramses configuration:
 ### Project Structure
 
 ```
-Ramses-Review/
-├── ramses_review/
+Ramses-Out/
+├── ramses_out/
 │   ├── __init__.py
 │   ├── __main__.py         # Entry point
 │   ├── gui.py              # Main UI
@@ -189,8 +189,8 @@ Ramses-Review/
 
 ```bash
 # Run in development mode
-cd Ramses-Review
-python -m ramses_review
+cd Ramses-Out
+python -m ramses_out
 ```
 
 ## Building Executable
@@ -199,14 +199,14 @@ python -m ramses_review
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name RamsesReview ramses_review/__main__.py
+pyinstaller --onefile --windowed --name RamsesOut ramses_out/__main__.py
 ```
 
-The executable will be created in `dist/RamsesReview.exe`.
+The executable will be created in `dist/RamsesOut.exe`.
 
 ## Integration with Ramses Hub
 
-Place `RamsesReview.exe` in the same directory as `RamsesHub.exe` for automatic detection and launching from the Hub.
+Place `RamsesOut.exe` in the same directory as `RamsesHub.exe` for automatic detection and launching from the Hub.
 
 ## Author
 

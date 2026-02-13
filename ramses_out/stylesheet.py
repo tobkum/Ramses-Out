@@ -1,4 +1,4 @@
-"""Unified stylesheet for Ramses Review - matches Ramses-Ingest theme."""
+"""Unified stylesheet for Ramses Out - matches Ramses-Ingest theme."""
 
 # Dark theme with darker blue (#0a7fad) accents
 STYLESHEET = """

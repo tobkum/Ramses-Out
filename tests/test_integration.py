@@ -1,4 +1,4 @@
-"""End-to-end integration tests for Ramses Review workflow."""
+"""End-to-end integration tests for Ramses Out workflow."""
 
 import os
 import sys
@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from ramses_review.scanner import PreviewScanner
-from ramses_review.tracker import UploadTracker
-from ramses_review.collector import PreviewCollector
+from ramses_out.scanner import PreviewScanner
+from ramses_out.tracker import UploadTracker
+from ramses_out.collector import PreviewCollector
 
 
 class TestEndToEndWorkflow(unittest.TestCase):

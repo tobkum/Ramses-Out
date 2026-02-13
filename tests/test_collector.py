@@ -9,8 +9,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from ramses_review.collector import PreviewCollector
-from ramses_review.models import PreviewItem
+from ramses_out.collector import PreviewCollector
+from ramses_out.models import PreviewItem
 
 
 class TestPreviewCollector(unittest.TestCase):

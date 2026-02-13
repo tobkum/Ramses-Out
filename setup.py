@@ -1,4 +1,4 @@
-"""Setup script for Ramses Review."""
+"""Setup script for Ramses Out."""
 
 from setuptools import setup, find_packages
 
@@ -6,10 +6,10 @@ with open("README.md", "r", encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name="ramses-review",
+    name="ramses-out",
     version="0.1.0",
     author="Overmind Studios",
-    description="Preview collection and review preparation tool for Ramses pipeline",
+    description="Preview collection, review preparation, and delivery tool for Ramses pipeline",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
@@ -18,10 +18,10 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "ramses-review=ramses_review.gui:main",
+            "ramses-out=ramses_out.gui:main",
         ],
         "gui_scripts": [
-            "ramses-review-gui=ramses_review.gui:main",
+            "ramses-out-gui=ramses_out.gui:main",
         ],
     },
     python_requires=">=3.10",

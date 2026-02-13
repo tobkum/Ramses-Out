@@ -1,4 +1,4 @@
-"""Settings dialog for Ramses Review configuration."""
+"""Settings dialog for Ramses Out configuration."""
 
 from PySide6.QtWidgets import (
     QDialog,
@@ -25,7 +25,7 @@ class SettingsDialog(QDialog):
         self.config = config
         self.ramses_settings = load_ramses_settings()
 
-        self.setWindowTitle("Ramses Review - Settings")
+        self.setWindowTitle("Ramses Out - Settings")
         self.setStyleSheet(STYLESHEET)
         self.setMinimumWidth(500)
         self.setMinimumHeight(300)
@@ -34,8 +34,8 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(16)
 
-        # --- Review Settings ---
-        review_group = QGroupBox("Review Settings")
+        # --- Out Settings ---
+        review_group = QGroupBox("Out Settings")
         review_layout = QFormLayout(review_group)
 
         # Default collection path (relative to project)
@@ -103,7 +103,7 @@ class SettingsDialog(QDialog):
 
     def _save(self):
         """Save settings to config."""
-        # Save Review-specific settings
+        # Save Out-specific settings
         collection_path = self.collection_path_edit.text().strip()
         # Normalize path separators
         if collection_path:

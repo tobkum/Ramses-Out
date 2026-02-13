@@ -1,4 +1,4 @@
-"""Configuration management for Ramses Review."""
+"""Configuration management for Ramses Out."""
 
 import json
 import os
@@ -14,7 +14,7 @@ DEFAULT_CONFIG = {
 
 
 def get_config_dir() -> Path:
-    """Get the Ramses Review configuration directory."""
+    """Get the Ramses Out configuration directory."""
     home = Path.home()
     config_dir = home / ".ramses"
     config_dir.mkdir(exist_ok=True)
@@ -22,8 +22,8 @@ def get_config_dir() -> Path:
 
 
 def get_config_path() -> Path:
-    """Get the path to the Review configuration file."""
-    return get_config_dir() / "review_config.json"
+    """Get the path to the Out configuration file."""
+    return get_config_dir() / "out_config.json"
 
 
 def get_ramses_config_dir() -> Path:
@@ -49,7 +49,7 @@ def get_ramses_config_path() -> Path:
 
 
 def load_config() -> Dict[str, Any]:
-    """Load Review configuration from disk, or create default if not exists."""
+    """Load Out configuration from disk, or create default if not exists."""
     config_path = get_config_path()
 
     if config_path.exists():
@@ -67,7 +67,7 @@ def load_config() -> Dict[str, Any]:
 
 
 def save_config(config: Dict[str, Any]) -> bool:
-    """Save Review configuration to disk."""
+    """Save Out configuration to disk."""
     try:
         config_path = get_config_path()
         with open(config_path, "w", encoding="utf-8") as f:

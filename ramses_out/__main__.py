@@ -1,4 +1,4 @@
-"""Entry point for Ramses Review."""
+"""Entry point for Ramses Out."""
 
 from .gui import main
 

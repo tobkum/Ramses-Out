@@ -1,6 +1,6 @@
-# Ramses-Review Test Suite
+# Ramses-Out Test Suite
 
-Comprehensive test coverage for all Ramses-Review functionality.
+Comprehensive test coverage for all Ramses-Out functionality.
 
 ## Test Statistics
 
@@ -150,4 +150,4 @@ All tests are substantive and test actual functionality:
 See `../tests/test_complete_pipeline.py` for end-to-end tests across:
 - Ramses-Ingest (media ingestion)
 - Ramses-Fusion (preview rendering)
-- Ramses-Review (review collection)
+- Ramses-Out (review collection)

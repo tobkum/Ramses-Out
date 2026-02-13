@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from ramses_review.scanner import PreviewScanner
-from ramses_review.models import PreviewItem
+from ramses_out.scanner import PreviewScanner
+from ramses_out.models import PreviewItem
 
 
 class TestPreviewScanner(unittest.TestCase):

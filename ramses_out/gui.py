@@ -1,4 +1,4 @@
-"""Main GUI for Ramses Review."""
+"""Main GUI for Ramses Out."""
 
 import sys
 import os
@@ -97,12 +97,12 @@ class CollectionThread(QThread):
         self.progress.emit(current, total, filename)
 
 
-class RamsesReviewWindow(QMainWindow):
-    """Main window for Ramses Review."""
+class RamsesOutWindow(QMainWindow):
+    """Main window for Ramses Out."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Ramses Review Collector")
+        self.setWindowTitle("Ramses Out")
         self.setStyleSheet(STYLESHEET)
         self.resize(1000, 700)
 
@@ -188,7 +188,7 @@ class RamsesReviewWindow(QMainWindow):
         layout.setSpacing(16)
 
         # Header
-        header = QLabel("Ramses Review Collector")
+        header = QLabel("Ramses Out")
         header.setObjectName("headerLabel")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
@@ -680,11 +680,11 @@ class RamsesReviewWindow(QMainWindow):
 
 
 def main():
-    """Entry point for Ramses Review."""
+    """Entry point for Ramses Out."""
     app = QApplication(sys.argv)
-    app.setApplicationName("Ramses Review")
+    app.setApplicationName("Ramses Out")
 
-    window = RamsesReviewWindow()
+    window = RamsesOutWindow()
     window.show()
 
     sys.exit(app.exec())

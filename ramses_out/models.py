@@ -1,4 +1,4 @@
-"""Data models for Ramses Review."""
+"""Data models for Ramses Out."""
 
 from dataclasses import dataclass
 from datetime import datetime

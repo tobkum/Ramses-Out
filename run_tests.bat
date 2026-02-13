@@ -1,8 +1,8 @@
 @echo off
-REM Run all Ramses-Review tests
+REM Run all Ramses-Out tests
 
 echo ===============================================
-echo Running Ramses-Review Test Suite
+echo Running Ramses-Out Test Suite
 echo ===============================================
 echo.
 

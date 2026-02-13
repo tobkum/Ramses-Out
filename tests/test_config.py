@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from ramses_review import config
+from ramses_out import config
 
 
 class TestConfig(unittest.TestCase):
@@ -19,7 +19,7 @@ class TestConfig(unittest.TestCase):
     def setUp(self):
         """Create temp config directory."""
         self.temp_dir = tempfile.mkdtemp()
-        self.config_file = Path(self.temp_dir) / "review_config.json"
+        self.config_file = Path(self.temp_dir) / "out_config.json"
         self.ramses_config_file = Path(self.temp_dir) / "ramses_addons_settings.json"
 
     def test_default_config(self):
