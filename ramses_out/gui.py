@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QProgressDialog,
 )
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont, QShortcut, QKeySequence
 
 from .stylesheet import STYLESHEET
@@ -97,6 +97,21 @@ class CollectionThread(QThread):
         self.progress.emit(current, total, filename)
 
 
+class ConnectionWorker(QThread):
+    """Connects to Ramses daemon in a background thread."""
+
+    finished = Signal(bool)
+
+    def run(self):
+        try:
+            ram = Ramses.instance()
+            if not ram.online():
+                ram.connect()
+            self.finished.emit(ram.online() and ram.project() is not None)
+        except Exception:
+            self.finished.emit(False)
+
+
 class RamsesOutWindow(QMainWindow):
     """Main window for Ramses Out."""
 
@@ -106,15 +121,9 @@ class RamsesOutWindow(QMainWindow):
         self.setStyleSheet(STYLESHEET)
         self.resize(1000, 700)
 
-        # Initialize Ramses API
+        # Initialize Ramses API (connection happens async below)
         self.ramses = Ramses.instance()
-
-        # Connect if not online
-        if not self.ramses.online():
-            self.ramses.connect()
-
-        # Get current project
-        self.current_project = self.ramses.project() if self.ramses.online() else None
+        self.current_project = None
 
         # Load configuration
         self.config = load_config()
@@ -122,7 +131,6 @@ class RamsesOutWindow(QMainWindow):
         # Cache sequences and steps from API (source of truth)
         self.api_sequences: List[str] = []
         self.api_steps: List[str] = []
-        self._cache_api_data()
 
         # Data
         self.all_previews: List[PreviewItem] = []
@@ -134,16 +142,18 @@ class RamsesOutWindow(QMainWindow):
         # Threads
         self.scan_thread: Optional[ScanThread] = None
         self.collection_thread: Optional[CollectionThread] = None
+        self._connection_worker: Optional[ConnectionWorker] = None
+
+        # Auto-reconnect timer
+        self._reconnect_timer = QTimer(self)
+        self._reconnect_timer.setInterval(5000)
+        self._reconnect_timer.timeout.connect(self._try_connect)
 
         # Build UI
         self._build_ui()
 
-        # Populate filter dropdowns from API
-        self._populate_filter_dropdowns()
-
-        # Initial scan if project available
-        if self.current_project:
-            self._scan_project()
+        # Connect asynchronously on startup
+        QTimer.singleShot(100, self._try_connect)
 
     def _cache_api_data(self):
         """Cache sequences and steps from Ramses API (source of truth)."""
@@ -196,7 +206,33 @@ class RamsesOutWindow(QMainWindow):
         # Project info bar
         info_layout = QHBoxLayout()
 
-        self.project_label = QLabel("Project: Loading...")
+        # Daemon status indicator
+        self._status_label = QLabel("OFFLINE")
+        self._status_label.setObjectName("statusDisconnected")
+        self._status_label.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        info_layout.addWidget(self._status_label)
+
+        self._btn_reconnect = QPushButton("Reconnect")
+        self._btn_reconnect.setFixedWidth(80)
+        self._btn_reconnect.setFixedHeight(22)
+        self._btn_reconnect.setStyleSheet("font-size: 9px; padding: 2px;")
+        self._btn_reconnect.clicked.connect(self._try_connect)
+        self._btn_reconnect.setVisible(False)
+        info_layout.addWidget(self._btn_reconnect)
+
+        self._btn_refresh_connection = QPushButton("↻ Refresh")
+        self._btn_refresh_connection.setFixedWidth(70)
+        self._btn_refresh_connection.setFixedHeight(22)
+        self._btn_refresh_connection.setStyleSheet("font-size: 9px; padding: 2px;")
+        self._btn_refresh_connection.clicked.connect(self._try_connect)
+        self._btn_refresh_connection.setVisible(False)
+        info_layout.addWidget(self._btn_refresh_connection)
+
+        sep = QLabel("|")
+        sep.setStyleSheet("color: #444444;")
+        info_layout.addWidget(sep)
+
+        self.project_label = QLabel("Project: —")
         self.project_label.setObjectName("statusLabel")
         info_layout.addWidget(self.project_label)
 
@@ -282,21 +318,16 @@ class RamsesOutWindow(QMainWindow):
         # Primary actions on right (matches Ramses-Ingest pattern)
         self.mark_sent_btn = QPushButton("Mark as Sent")
         self.mark_sent_btn.clicked.connect(self._mark_as_sent)
+        self.mark_sent_btn.setEnabled(False)
         button_layout.addWidget(self.mark_sent_btn)
 
         self.collect_btn = QPushButton("Collect to Folder")
         self.collect_btn.setObjectName("primaryButton")
         self.collect_btn.clicked.connect(self._collect_to_folder)
+        self.collect_btn.setEnabled(False)
         button_layout.addWidget(self.collect_btn)
 
         layout.addLayout(button_layout)
-
-        # Update project label
-        if self.current_project:
-            proj_name = self.current_project.shortName()
-            self.project_label.setText(f"Project: {proj_name}")
-        else:
-            self.project_label.setText("Project: No active project")
 
         # Setup keyboard shortcuts
         self._setup_shortcuts()
@@ -373,6 +404,65 @@ class RamsesOutWindow(QMainWindow):
         except Exception as e:
             # If opening fails, just log it - not critical
             print(f"Could not open folder: {e}")
+
+    def _try_connect(self):
+        """Start background connection attempt to Ramses daemon."""
+        if self._connection_worker and self._connection_worker.isRunning():
+            return
+
+        # Show connecting state
+        self._status_label.setText("CONNECTING...")
+        self._status_label.setObjectName("statusConnecting")
+        self._status_label.style().unpolish(self._status_label)
+        self._status_label.style().polish(self._status_label)
+        self._btn_reconnect.setVisible(False)
+        self._btn_refresh_connection.setEnabled(False)
+
+        self._connection_worker = ConnectionWorker(parent=self)
+        self._connection_worker.finished.connect(self._on_connection_finished)
+        self._connection_worker.start()
+
+    def _on_connection_finished(self, ok: bool):
+        """Handle daemon connection result."""
+        if ok:
+            self._reconnect_timer.stop()
+            self._status_label.setText("DAEMON ONLINE")
+            self._status_label.setObjectName("statusConnected")
+            self._btn_reconnect.setVisible(False)
+            self._btn_refresh_connection.setVisible(True)
+            self._btn_refresh_connection.setEnabled(True)
+
+            # Cache project data
+            self.current_project = self.ramses.project()
+            if self.current_project:
+                self.project_label.setText(f"Project: {self.current_project.shortName()}")
+            self._cache_api_data()
+            self._populate_filter_dropdowns()
+
+            # Enable action buttons
+            self.mark_sent_btn.setEnabled(True)
+            self.collect_btn.setEnabled(True)
+
+            # Auto-scan on first successful connection
+            if self.current_project:
+                self._scan_project()
+        else:
+            self._status_label.setText("OFFLINE")
+            self._status_label.setObjectName("statusDisconnected")
+            self._btn_reconnect.setVisible(True)
+            self._btn_refresh_connection.setVisible(False)
+            self.project_label.setText("Project: — (Connection Required)")
+
+            # Disable action buttons
+            self.mark_sent_btn.setEnabled(False)
+            self.collect_btn.setEnabled(False)
+
+            # Start auto-retry
+            if not self._reconnect_timer.isActive():
+                self._reconnect_timer.start()
+
+        self._status_label.style().unpolish(self._status_label)
+        self._status_label.style().polish(self._status_label)
 
     def _scan_project(self):
         """Scan project for preview files."""

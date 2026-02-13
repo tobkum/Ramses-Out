@@ -59,6 +59,23 @@ QLabel#statusError {
     font-weight: bold;
 }
 
+QLabel#statusConnected {
+    color: #27ae60;
+    font-weight: bold;
+    background-color: transparent;
+}
+
+QLabel#statusConnecting {
+    color: #f39c12;
+    font-weight: bold;
+    background-color: transparent;
+}
+
+QLabel#statusDisconnected {
+    color: #f44747;
+    background-color: transparent;
+}
+
 /* --- Buttons --- */
 QPushButton {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #333333, stop:1 #2d2d2d);
