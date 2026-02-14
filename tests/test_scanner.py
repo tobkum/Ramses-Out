@@ -41,17 +41,19 @@ class TestPreviewScanner(unittest.TestCase):
         self.preview2_file = preview2 / "TEST_S_SH020_ANIM.mp4"
         self.preview2_file.write_text("fake video data")
 
-        # Make preview older first
-        preview_time = datetime.now() - timedelta(hours=2)
+        # Make preview older first (but still today)
+        now = datetime.now()
+        # Use a fixed time today to avoid midnight boundary issues
+        preview_time = now.replace(hour=0, minute=0, second=1)
         os.utime(self.preview2_file, (preview_time.timestamp(), preview_time.timestamp()))
 
         # Create marker for preview2 (newer than preview)
-        marker_date = datetime.now().strftime("%Y-%m-%d")
+        marker_date = now.strftime("%Y-%m-%d")
         self.marker_file = preview2 / f".review_sent_{marker_date}.txt"
         self.marker_file.write_text(f"Uploaded: {marker_date} 10:00:00\n")
 
         # Make marker newer than preview to test "Sent" status
-        marker_time = datetime.now() - timedelta(hours=1)
+        marker_time = now.replace(hour=0, minute=5, second=0)
         os.utime(self.marker_file, (marker_time.timestamp(), marker_time.timestamp()))
 
         self.scanner = PreviewScanner(str(self.project_root))
