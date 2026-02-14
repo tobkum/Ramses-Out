@@ -36,27 +36,35 @@ class PreviewScanner:
         if not self.shots_folder.exists():
             return previews
 
-        # Scan all shot folders
-        for shot_folder in self.shots_folder.iterdir():
-            if not shot_folder.is_dir():
-                continue
-
-            # Scan all step folders within shot
-            for step_folder in shot_folder.iterdir():
-                if not step_folder.is_dir():
+        try:
+            # Scan all shot folders
+            for shot_folder in self.shots_folder.iterdir():
+                if not shot_folder.is_dir():
                     continue
 
-                # Check for _preview folder
-                preview_folder = step_folder / "_preview"
-                if not preview_folder.exists():
-                    continue
+                try:
+                    # Scan all step folders within shot
+                    for step_folder in shot_folder.iterdir():
+                        if not step_folder.is_dir():
+                            continue
 
-                # Scan for preview files in _preview folder
-                for preview_file in preview_folder.iterdir():
-                    if preview_file.is_file() and preview_file.suffix.lower() in ['.mp4', '.mov']:
-                        preview = self._parse_preview_file(preview_file)
-                        if preview:
-                            previews.append(preview)
+                        # Check for _preview folder
+                        preview_folder = step_folder / "_preview"
+                        if not preview_folder.exists():
+                            continue
+
+                        # Scan for preview files in _preview folder
+                        for preview_file in preview_folder.iterdir():
+                            if preview_file.is_file() and preview_file.suffix.lower() in ['.mp4', '.mov']:
+                                preview = self._parse_preview_file(preview_file)
+                                if preview:
+                                    previews.append(preview)
+                except (PermissionError, OSError):
+                    # Skip shots we can't read
+                    continue
+        except (PermissionError, OSError):
+            # Inaccessible shots root
+            pass
 
         return previews
 
@@ -78,62 +86,63 @@ class PreviewScanner:
         shot_id = None
         step_id = None
 
-        # Try filename-based parsing: {PROJECT}_S_{SHOT}_{STEP}.{ext}
-        filename = file_path.stem
-        parts = filename.split('_S_')
+        try:
+            # Try filename-based parsing: {PROJECT}_S_{SHOT}_{STEP}.{ext}
+            filename = file_path.stem
+            parts = filename.split('_S_')
 
-        if len(parts) == 2:
-            rest_parts = parts[1].split('_', 1)
-            if len(rest_parts) == 2:
-                project_id = parts[0]
-                shot_id = rest_parts[0]
-                step_id = rest_parts[1]
+            if len(parts) == 2:
+                rest_parts = parts[1].split('_', 1)
+                if len(rest_parts) == 2:
+                    project_id = parts[0]
+                    shot_id = rest_parts[0]
+                    step_id = rest_parts[1]
 
-        # Fallback: extract from folder structure
-        # _preview -> step_folder -> shot_folder -> 05-SHOTS
-        if not all((project_id, shot_id, step_id)):
-            step_folder = file_path.parent.parent   # e.g. Testprojec_S_120_Comp
-            shot_folder = step_folder.parent         # e.g. Testprojec_S_120
+            # Fallback: extract from folder structure
+            # _preview -> step_folder -> shot_folder -> 05-SHOTS
+            if not all((project_id, shot_id, step_id)):
+                step_folder = file_path.parent.parent   # e.g. Testprojec_S_120_Comp
+                shot_folder = step_folder.parent         # e.g. Testprojec_S_120
 
-            shot_parts = shot_folder.name.split('_S_')
-            if len(shot_parts) != 2:
-                return None
+                # Use rsplit to handle potential underscores in project names
+                shot_parts = shot_folder.name.rsplit('_S_', 1)
+                if len(shot_parts) != 2:
+                    return None
 
-            project_id = shot_parts[0]
-            shot_id = shot_parts[1]
+                project_id = shot_parts[0]
+                shot_id = shot_parts[1]
 
-            # Step ID: strip the shot folder prefix from step folder name
-            step_name = step_folder.name
-            prefix = shot_folder.name + '_'
-            if step_name.startswith(prefix):
-                step_id = step_name[len(prefix):]
-            else:
-                step_id = step_name
+                # Step ID: strip the shot folder prefix from step folder name
+                step_name = step_folder.name
+                prefix = shot_folder.name + '_'
+                if step_name.startswith(prefix):
+                    step_id = step_name[len(prefix):]
+                else:
+                    step_id = step_name
 
-        # Sequence is resolved later via the Ramses API (see gui._resolve_sequences)
-        sequence_id = ""
+            # Get file info
+            stat = file_path.stat()
+            file_size = stat.st_size
+            date_modified = datetime.fromtimestamp(stat.st_mtime)
 
-        # Get file info
-        stat = file_path.stat()
-        file_size = stat.st_size
-        date_modified = datetime.fromtimestamp(stat.st_mtime)
+            # Check for marker file and compare with preview modification time
+            marker_path, sent_date, status = self._check_marker(file_path.parent, date_modified)
 
-        # Check for marker file and compare with preview modification time
-        marker_path, sent_date, status = self._check_marker(file_path.parent, date_modified)
-
-        return PreviewItem(
-            shot_id=shot_id,
-            sequence_id=sequence_id,
-            step_id=step_id,
-            project_id=project_id,
-            file_path=str(file_path),
-            file_size=file_size,
-            date_modified=date_modified,
-            format=file_path.suffix[1:].lower(),  # Remove leading dot
-            status=status,
-            marker_path=marker_path,
-            sent_date=sent_date
-        )
+            return PreviewItem(
+                shot_id=shot_id,
+                sequence_id="",  # Resolved later
+                step_id=step_id,
+                project_id=project_id,
+                file_path=str(file_path),
+                file_size=file_size,
+                date_modified=date_modified,
+                format=file_path.suffix[1:].lower(),
+                status=status,
+                marker_path=marker_path,
+                sent_date=sent_date
+            )
+        except (OSError, ValueError):
+            return None
 
     def _check_marker(self, preview_folder: Path, preview_modified: datetime) -> tuple[Optional[str], Optional[str], str]:
         """Check for review marker file in preview folder.
@@ -145,16 +154,22 @@ class PreviewScanner:
         Returns:
             Tuple of (marker_path, sent_date, status)
         """
-        # Look for .review_sent_YYYY-MM-DD[_HHMMSS].txt files and find the most recent one
         marker_files = []
-        for marker_file in preview_folder.glob('.review_sent_*.txt'):
-            # Flexible regex: matches YYYY-MM-DD and optionally any suffix before .txt
-            match = re.search(r'\.review_sent_(\d{4}-\d{2}-\d{2}).*\.txt', marker_file.name)
-            if match:
-                sent_date = match.group(1)
-                marker_stat = marker_file.stat()
-                marker_modified = datetime.fromtimestamp(marker_stat.st_mtime)
-                marker_files.append((marker_file, sent_date, marker_modified))
+        try:
+            # Look for .review_sent_YYYY-MM-DD[_HHMMSS].txt files and find the most recent one
+            for marker_file in preview_folder.glob('.review_sent_*.txt'):
+                # Flexible regex: matches YYYY-MM-DD and optionally any suffix before .txt
+                match = re.search(r'\.review_sent_(\d{4}-\d{2}-\d{2}).*\.txt', marker_file.name)
+                if match:
+                    sent_date = match.group(1)
+                    try:
+                        marker_stat = marker_file.stat()
+                        marker_modified = datetime.fromtimestamp(marker_stat.st_mtime)
+                        marker_files.append((marker_file, sent_date, marker_modified))
+                    except OSError:
+                        continue
+        except (PermissionError, OSError):
+            pass
 
         if not marker_files:
             return None, None, "Ready"

@@ -18,7 +18,7 @@ class PreviewCollector:
         dest: str,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         cancel_check: Optional[Callable[[], bool]] = None
-    ) -> bool:
+    ) -> tuple[bool, List[tuple[str, str]]]:
         """Collect preview files to destination folder.
 
         Args:
@@ -28,7 +28,7 @@ class PreviewCollector:
             cancel_check: Optional callback that returns True if cancellation requested
 
         Returns:
-            True if collection succeeded, False if cancelled or failed
+            Tuple of (Success, List of (filename, error_message))
         """
         dest_path = Path(dest)
         dest_path.mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,7 @@ class PreviewCollector:
         for idx, item in enumerate(items, 1):
             # Check for cancellation
             if cancel_check and cancel_check():
-                return False
+                return False, failed_files
 
             source = Path(item.file_path)
 
@@ -61,7 +61,7 @@ class PreviewCollector:
                 failed_files.append((source.name, str(e)))
 
         # Success if we copied at least some files and had no failures
-        return copied_count > 0 and len(failed_files) == 0
+        return (copied_count > 0 and len(failed_files) == 0), failed_files
 
     def _natural_sort_key(self, s: str):
         """Key for natural alphanumeric sorting (e.g., SH1, SH2, SH10)."""

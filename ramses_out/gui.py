@@ -47,15 +47,32 @@ class ScanThread(QThread):
     finished = Signal(list)  # Emits list of PreviewItem
     error = Signal(str)
 
-    def __init__(self, project_root: str):
+    def __init__(self, project_root: str, project=None):
         super().__init__()
         self.project_root = project_root
+        self.project = project
 
     def run(self):
         """Run scan in background."""
         try:
             scanner = PreviewScanner(self.project_root)
             previews = scanner.scan_project()
+            
+            # Resolve sequences in background
+            if self.project and previews:
+                try:
+                    shot_seq_map = {}
+                    for seq in self.project.sequences():
+                        seq_name = seq.shortName()
+                        for shot in seq.shots():
+                            shot_seq_map[shot.shortName()] = seq_name
+
+                    for preview in previews:
+                        if not preview.sequence_id and preview.shot_id in shot_seq_map:
+                            preview.sequence_id = shot_seq_map[preview.shot_id]
+                except Exception as e:
+                    print(f"Warning: Failed to resolve sequences in background: {e}")
+
             self.finished.emit(previews)
         except Exception as e:
             self.error.emit(str(e))
@@ -65,7 +82,7 @@ class CollectionThread(QThread):
     """Background thread for collecting files."""
 
     progress = Signal(int, int, str)  # current, total, filename
-    finished = Signal(bool)  # success
+    finished = Signal(bool, list)  # success, failed_files
     error = Signal(str)
 
     def __init__(self, items: List[PreviewItem], dest: str):
@@ -82,13 +99,13 @@ class CollectionThread(QThread):
         """Run collection in background."""
         try:
             collector = PreviewCollector()
-            success = collector.collect_files(
+            success, failed_files = collector.collect_files(
                 self.items,
                 self.dest,
                 progress_callback=self._emit_progress,
                 cancel_check=lambda: self._cancel_requested
             )
-            self.finished.emit(success)
+            self.finished.emit(success, failed_files)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -695,6 +712,7 @@ class RamsesOutWindow(QMainWindow):
     def _on_collection_finished(
         self,
         success: bool,
+        failed_files: List[tuple[str, str]],
         dest: str,
         items: List[PreviewItem],
         package_name: str,
@@ -718,11 +736,20 @@ class RamsesOutWindow(QMainWindow):
             # Open folder in file manager (cross-platform)
             self._open_folder(dest)
         else:
-            QMessageBox.critical(
-                self,
-                "Collection Failed",
-                "Failed to collect some files. Please check the destination folder."
-            )
+            if failed_files:
+                error_msg = "Failed to collect some files:\n\n"
+                for fname, error in failed_files[:10]:  # Limit to 10
+                    error_msg += f"• {fname}: {error}\n"
+                if len(failed_files) > 10:
+                    error_msg += f"\n...and {len(failed_files) - 10} more."
+                
+                QMessageBox.critical(self, "Collection Incomplete", error_msg)
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Collection Failed",
+                    "Failed to collect files. Please check the destination folder."
+                )
 
     def _on_collection_error(self, error: str, dialog: QProgressDialog):
         """Handle collection error."""

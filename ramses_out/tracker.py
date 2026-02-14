@@ -117,7 +117,7 @@ class UploadTracker:
         Returns:
             True if appended successfully
         """
-        username = self._get_username()
+        username = self._get_username().replace("|", "-")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         
         # Sanitize fields to prevent log corruption
@@ -126,8 +126,10 @@ class UploadTracker:
         try:
             with open(self.history_log, "a", encoding="utf-8") as f:
                 for item in preview_items:
+                    safe_shot = item.shot_id.replace("|", "-")
+                    safe_step = item.step_id.replace("|", "-")
                     # Format: timestamp|Review|shot_id|step|fTrack|username|package_name
-                    entry = f"{timestamp}|Review|{item.shot_id}|{item.step_id}|fTrack|{username}|{safe_package}\n"
+                    entry = f"{timestamp}|Review|{safe_shot}|{safe_step}|fTrack|{username}|{safe_package}\n"
                     f.write(entry)
 
             return True
