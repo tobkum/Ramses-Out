@@ -5,6 +5,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+# Add shared Ramses API library path (project root)
+import sys
+lib_path = Path(__file__).parent.parent.parent / "lib"
+if str(lib_path) not in sys.path:
+    sys.path.insert(0, str(lib_path))
+
 from .models import PreviewItem
 
 
@@ -25,6 +31,20 @@ class UploadTracker:
         ramses_dir = home / ".ramses"
         ramses_dir.mkdir(exist_ok=True)
         return ramses_dir / "upload_history.log"
+
+    def _get_username(self) -> str:
+        """Get the current Ramses username, fallback to system username."""
+        try:
+            from ramses import Ramses
+            ram = Ramses.instance()
+            user = ram.user()
+            if user:
+                return user.name()
+        except Exception:
+            pass
+
+        import getpass
+        return getpass.getuser()
 
     def create_marker(self, preview_item: PreviewItem, package_name: str, notes: str = "") -> bool:
         """Create marker file for uploaded preview.
@@ -48,7 +68,7 @@ class UploadTracker:
         marker_path = preview_folder / marker_filename
 
         # Get username
-        username = os.getenv("USERNAME", "unknown")
+        username = self._get_username()
 
         # Write marker file
         try:
@@ -97,14 +117,17 @@ class UploadTracker:
         Returns:
             True if appended successfully
         """
-        username = os.getenv("USERNAME", "unknown")
+        username = self._get_username()
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        
+        # Sanitize fields to prevent log corruption
+        safe_package = package_name.replace("|", "-")
 
         try:
             with open(self.history_log, "a", encoding="utf-8") as f:
                 for item in preview_items:
                     # Format: timestamp|Review|shot_id|step|fTrack|username|package_name
-                    entry = f"{timestamp}|Review|{item.shot_id}|{item.step_id}|fTrack|{username}|{package_name}\n"
+                    entry = f"{timestamp}|Review|{item.shot_id}|{item.step_id}|fTrack|{username}|{safe_package}\n"
                     f.write(entry)
 
             return True
@@ -154,13 +177,17 @@ class UploadTracker:
         Returns:
             True if all markers created successfully
         """
+        # Sanitize inputs
+        safe_package = package_name.replace("|", "-")
+        safe_notes = notes.replace("|", "-")
+
         success = True
         for item in preview_items:
-            if not self.create_marker(item, package_name, notes):
+            if not self.create_marker(item, safe_package, safe_notes):
                 success = False
 
         # Append to history log
         if success:
-            self.append_to_log(preview_items, package_name)
+            self.append_to_log(preview_items, safe_package)
 
         return success

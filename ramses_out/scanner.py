@@ -183,18 +183,21 @@ class PreviewScanner:
             return items
 
         now = datetime.now()
+        today = now.date()
         filtered = []
 
         for item in items:
+            item_date = item.date_modified.date()
             if date_range == "Today":
-                if item.date_modified.date() == now.date():
+                if item_date == today:
                     filtered.append(item)
             elif date_range == "This Week":
-                days_ago = (now - item.date_modified).days
-                if days_ago <= 7:
+                # Current week (Monday to Sunday)
+                start_of_week = today - timedelta(days=today.weekday())
+                if item_date >= start_of_week:
                     filtered.append(item)
             elif date_range == "This Month":
-                if item.date_modified.month == now.month and item.date_modified.year == now.year:
+                if item_date.month == today.month and item_date.year == today.year:
                     filtered.append(item)
 
         return filtered

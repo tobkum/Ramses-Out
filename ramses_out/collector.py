@@ -1,5 +1,6 @@
 """File collection and shot list generation."""
 
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +63,11 @@ class PreviewCollector:
         # Success if we copied at least some files and had no failures
         return copied_count > 0 and len(failed_files) == 0
 
+    def _natural_sort_key(self, s: str):
+        """Key for natural alphanumeric sorting (e.g., SH1, SH2, SH10)."""
+        return [int(text) if text.isdigit() else text.lower()
+                for text in re.split('([0-9]+)', s)]
+
     def generate_shot_list(self, items: List[PreviewItem], project_name: str) -> str:
         """Generate shot list manifest text.
 
@@ -85,13 +91,14 @@ class PreviewCollector:
                 by_sequence[seq] = []
             by_sequence[seq].append(item)
 
-        # Sort sequences
-        for seq in sorted(by_sequence.keys()):
+        # Sort sequences naturally
+        for seq in sorted(by_sequence.keys(), key=self._natural_sort_key):
             seq_items = by_sequence[seq]
             lines.append(f"# {seq}")
             lines.append("")
 
-            for item in sorted(seq_items, key=lambda x: x.shot_id):
+            # Sort items by shot_id naturally
+            for item in sorted(seq_items, key=lambda x: self._natural_sort_key(x.shot_id)):
                 # Format: SH010 - COMP - 1920x1080 @ 24fps (23.4 MB)
                 line = f"{item.shot_id} - {item.step_id} - {item.format.upper()} ({item.size_mb:.1f} MB)"
                 lines.append(line)

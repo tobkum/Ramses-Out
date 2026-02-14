@@ -67,11 +67,22 @@ def load_config() -> Dict[str, Any]:
 
 
 def save_config(config: Dict[str, Any]) -> bool:
-    """Save Out configuration to disk."""
+    """Save Out configuration to disk (Atomic)."""
     try:
         config_path = get_config_path()
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
+        dir_name = config_path.parent
+        dir_name.mkdir(exist_ok=True)
+
+        import tempfile
+        fd, temp_path = tempfile.mkstemp(dir=str(dir_name), prefix=".out_config_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tf:
+                json.dump(config, tf, indent=2)
+            os.replace(temp_path, str(config_path))
+        except Exception:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
         return True
     except Exception:
         return False
@@ -101,8 +112,10 @@ def load_ramses_settings() -> Dict[str, Any]:
 
 
 def save_ramses_settings(client_path: Optional[str] = None, client_port: Optional[int] = None) -> bool:
-    """Save settings to the common Ramses config (shared by all tools)."""
+    """Save settings to the common Ramses config (shared by all tools - Atomic)."""
     config_path = get_ramses_config_path()
+    dir_name = config_path.parent
+    dir_name.mkdir(parents=True, exist_ok=True)
 
     # Load existing settings to preserve other values
     existing = {}
@@ -120,8 +133,16 @@ def save_ramses_settings(client_path: Optional[str] = None, client_port: Optiona
         existing["clientPort"] = client_port
 
     try:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(existing, f, indent=4)
+        import tempfile
+        fd, temp_path = tempfile.mkstemp(dir=str(dir_name), prefix=".ram_settings_", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tf:
+                json.dump(existing, tf, indent=4)
+            os.replace(temp_path, str(config_path))
+        except Exception:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
         return True
     except Exception:
         return False

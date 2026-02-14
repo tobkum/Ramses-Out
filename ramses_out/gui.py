@@ -34,7 +34,7 @@ from .config import load_config, save_config
 from .settings_dialog import SettingsDialog
 
 # Add lib path for Ramses
-lib_path = Path(__file__).parent.parent / "lib"
+lib_path = Path(__file__).parent.parent.parent / "lib"
 if str(lib_path) not in sys.path:
     sys.path.insert(0, str(lib_path))
 
