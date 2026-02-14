@@ -40,9 +40,11 @@ class UploadTracker:
         preview_path = Path(preview_item.file_path)
         preview_folder = preview_path.parent
 
-        # Create marker filename with current date
-        today = datetime.now().strftime("%Y-%m-%d")
-        marker_filename = f".review_sent_{today}.txt"
+        # Create marker filename with current date and timestamp to prevent overwrites
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H%M%S")
+        marker_filename = f".review_sent_{date_str}_{time_str}.txt"
         marker_path = preview_folder / marker_filename
 
         # Get username

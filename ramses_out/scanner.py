@@ -145,10 +145,11 @@ class PreviewScanner:
         Returns:
             Tuple of (marker_path, sent_date, status)
         """
-        # Look for .review_sent_*.txt files and find the most recent one
+        # Look for .review_sent_YYYY-MM-DD[_HHMMSS].txt files and find the most recent one
         marker_files = []
         for marker_file in preview_folder.glob('.review_sent_*.txt'):
-            match = re.search(r'\.review_sent_(\d{4}-\d{2}-\d{2})\.txt', marker_file.name)
+            # Flexible regex: matches YYYY-MM-DD and optionally any suffix before .txt
+            match = re.search(r'\.review_sent_(\d{4}-\d{2}-\d{2}).*\.txt', marker_file.name)
             if match:
                 sent_date = match.group(1)
                 marker_stat = marker_file.stat()
