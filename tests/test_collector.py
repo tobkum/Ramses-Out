@@ -56,9 +56,10 @@ class TestPreviewCollector(unittest.TestCase):
             self.create_preview_item(self.preview2, "SH020", "ANIM"),
         ]
 
-        success = self.collector.collect_files(items, str(self.dest_dir))
+        success, failed = self.collector.collect_files(items, str(self.dest_dir))
 
         self.assertTrue(success)
+        self.assertEqual(len(failed), 0)
 
         # Verify files were copied
         copied1 = self.dest_dir / "TEST_S_SH010_COMP.mp4"
@@ -80,11 +81,12 @@ class TestPreviewCollector(unittest.TestCase):
         def progress_callback(current, total, filename):
             progress_calls.append((current, total, filename))
 
-        success = self.collector.collect_files(
+        success, failed = self.collector.collect_files(
             items, str(self.dest_dir), progress_callback=progress_callback
         )
 
         self.assertTrue(success)
+        self.assertEqual(len(failed), 0)
         self.assertEqual(len(progress_calls), 2)
         self.assertEqual(progress_calls[0][0], 1)  # First file
         self.assertEqual(progress_calls[1][0], 2)  # Second file
@@ -103,7 +105,7 @@ class TestPreviewCollector(unittest.TestCase):
             call_count[0] += 1
             return call_count[0] > 1  # Cancel after first file
 
-        success = self.collector.collect_files(
+        success, failed = self.collector.collect_files(
             items, str(self.dest_dir), cancel_check=cancel_check
         )
 
@@ -129,10 +131,12 @@ class TestPreviewCollector(unittest.TestCase):
             missing_item,
         ]
 
-        success = self.collector.collect_files(items, str(self.dest_dir))
+        success, failed = self.collector.collect_files(items, str(self.dest_dir))
 
         # Should fail if any files are missing
         self.assertFalse(success)
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0][0], "missing.mp4")
 
         # But first file should have been copied
         copied1 = self.dest_dir / "TEST_S_SH010_COMP.mp4"
@@ -143,9 +147,10 @@ class TestPreviewCollector(unittest.TestCase):
         new_dest = self.dest_dir / "subfolder" / "package"
         items = [self.create_preview_item(self.preview1, "SH010", "COMP")]
 
-        success = self.collector.collect_files(items, str(new_dest))
+        success, failed = self.collector.collect_files(items, str(new_dest))
 
         self.assertTrue(success)
+        self.assertEqual(len(failed), 0)
         self.assertTrue(new_dest.exists())
 
     def test_generate_shot_list(self):
@@ -236,10 +241,11 @@ class TestPreviewCollector(unittest.TestCase):
         """Test collecting empty list."""
         items = []
 
-        success = self.collector.collect_files(items, str(self.dest_dir))
+        success, failed = self.collector.collect_files(items, str(self.dest_dir))
 
         # Should fail with no items
         self.assertFalse(success)
+        self.assertEqual(len(failed), 0)
 
     def tearDown(self):
         """Clean up temp directories."""

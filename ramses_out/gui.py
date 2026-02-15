@@ -695,7 +695,7 @@ class RamsesOutWindow(QMainWindow):
             lambda curr, total, fname: self._on_collection_progress(progress, curr, total, fname)
         )
         self.collection_thread.finished.connect(
-            lambda success: self._on_collection_finished(success, dest, selected, package_name, progress)
+            lambda success, failed_files: self._on_collection_finished(success, failed_files, dest, selected, package_name, progress)
         )
         self.collection_thread.error.connect(
             lambda err: self._on_collection_error(err, progress)

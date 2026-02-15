@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "mocks"))
 
 from ramses_out.scanner import PreviewScanner
 from ramses_out.tracker import UploadTracker
@@ -62,8 +63,9 @@ class TestEndToEndWorkflow(unittest.TestCase):
         package_dir = self.dest_dir / "TEST_20260211"
         package_dir.mkdir()
 
-        success = collector.collect_files(comp_previews, str(package_dir))
+        success, failed = collector.collect_files(comp_previews, str(package_dir))
         self.assertTrue(success)
+        self.assertEqual(len(failed), 0)
 
         # Verify files copied
         copied_files = list(package_dir.glob("*.mp4"))
@@ -190,7 +192,7 @@ class TestEndToEndWorkflow(unittest.TestCase):
             cancel_after[0] += 1
             return cancel_after[0] > 2  # Cancel after 2 files
 
-        success = collector.collect_files(
+        success, failed = collector.collect_files(
             previews, str(package_dir), cancel_check=cancel_check
         )
 

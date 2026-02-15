@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "mocks"))
 
 from ramses_out.scanner import PreviewScanner
 from ramses_out.models import PreviewItem
