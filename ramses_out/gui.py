@@ -183,7 +183,7 @@ class RamsesOutWindow(QMainWindow):
             self.api_sequences = [seq.shortName() for seq in sequences if seq.shortName()]
 
             # Get all shot production steps from API
-            from ramses.ram_step import StepType
+            from ramses import StepType
             steps = self.current_project.steps(StepType.SHOT_PRODUCTION)
             self.api_steps = [step.shortName() for step in steps if step.shortName()]
         except Exception as e:
@@ -249,8 +249,9 @@ class RamsesOutWindow(QMainWindow):
         sep.setStyleSheet("color: #444444;")
         info_layout.addWidget(sep)
 
-        self.project_label = QLabel("Project: —")
-        self.project_label.setObjectName("statusLabel")
+        info_layout.addWidget(QLabel("Project:"))
+        self.project_label = QLabel("—")
+        self.project_label.setStyleSheet("color: #ffffff; font-weight: 800; font-size: 13px;")
         info_layout.addWidget(self.project_label)
 
         info_layout.addStretch()
@@ -452,7 +453,9 @@ class RamsesOutWindow(QMainWindow):
             # Cache project data
             self.current_project = self.ramses.project()
             if self.current_project:
-                self.project_label.setText(f"Project: {self.current_project.shortName()}")
+                pid = self.current_project.shortName()
+                pname = self.current_project.name()
+                self.project_label.setText(f"{pid} - {pname}")
             self._cache_api_data()
             self._populate_filter_dropdowns()
 
@@ -468,7 +471,7 @@ class RamsesOutWindow(QMainWindow):
             self._status_label.setObjectName("statusDisconnected")
             self._btn_reconnect.setVisible(True)
             self._btn_refresh_connection.setVisible(False)
-            self.project_label.setText("Project: — (Connection Required)")
+            self.project_label.setText("— (Connection Required)")
 
             # Disable action buttons
             self.mark_sent_btn.setEnabled(False)
