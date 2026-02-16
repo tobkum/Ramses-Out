@@ -506,7 +506,7 @@ class RamsesOutWindow(QMainWindow):
             return
 
         # Start scan thread
-        self.scan_thread = ScanThread(project_path)
+        self.scan_thread = ScanThread(project_path, self.current_project)
         self.scan_thread.finished.connect(self._on_scan_finished)
         self.scan_thread.error.connect(self._on_scan_error)
         self.scan_thread.start()
@@ -515,29 +515,10 @@ class RamsesOutWindow(QMainWindow):
         self.last_scan_label.setText("Last Scan: Scanning...")
         self.table.setEnabled(False)
 
-    def _resolve_sequences(self, previews: List[PreviewItem]):
-        """Resolve sequence IDs for previews via the Ramses API."""
-        if not self.current_project:
-            return
-
-        try:
-            # Build shot_shortName -> sequence_shortName lookup
-            shot_seq_map = {}
-            for seq in self.current_project.sequences():
-                seq_name = seq.shortName()
-                for shot in seq.shots():
-                    shot_seq_map[shot.shortName()] = seq_name
-
-            for preview in previews:
-                if not preview.sequence_id and preview.shot_id in shot_seq_map:
-                    preview.sequence_id = shot_seq_map[preview.shot_id]
-        except Exception as e:
-            print(f"Warning: Failed to resolve sequences: {e}")
-
     def _on_scan_finished(self, previews: List[PreviewItem]):
         """Handle scan completion."""
         self.all_previews = previews
-        self._resolve_sequences(self.all_previews)
+        # Note: ScanThread already resolves sequences if project was provided
         self._apply_filters()
 
         # Update UI
@@ -695,7 +676,7 @@ class RamsesOutWindow(QMainWindow):
             lambda curr, total, fname: self._on_collection_progress(progress, curr, total, fname)
         )
         self.collection_thread.finished.connect(
-            lambda success: self._on_collection_finished(success, dest, selected, package_name, progress)
+            lambda success, failed_files: self._on_collection_finished(success, failed_files, dest, selected, package_name, progress)
         )
         self.collection_thread.error.connect(
             lambda err: self._on_collection_error(err, progress)

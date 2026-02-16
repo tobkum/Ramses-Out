@@ -56,7 +56,7 @@ class TestPreviewCollector(unittest.TestCase):
             self.create_preview_item(self.preview2, "SH020", "ANIM"),
         ]
 
-        success = self.collector.collect_files(items, str(self.dest_dir))
+        success, failed_files = self.collector.collect_files(items, str(self.dest_dir))
 
         self.assertTrue(success)
 
@@ -80,7 +80,7 @@ class TestPreviewCollector(unittest.TestCase):
         def progress_callback(current, total, filename):
             progress_calls.append((current, total, filename))
 
-        success = self.collector.collect_files(
+        success, failed_files = self.collector.collect_files(
             items, str(self.dest_dir), progress_callback=progress_callback
         )
 
@@ -103,7 +103,7 @@ class TestPreviewCollector(unittest.TestCase):
             call_count[0] += 1
             return call_count[0] > 1  # Cancel after first file
 
-        success = self.collector.collect_files(
+        success, failed_files = self.collector.collect_files(
             items, str(self.dest_dir), cancel_check=cancel_check
         )
 
@@ -129,7 +129,7 @@ class TestPreviewCollector(unittest.TestCase):
             missing_item,
         ]
 
-        success = self.collector.collect_files(items, str(self.dest_dir))
+        success, failed_files = self.collector.collect_files(items, str(self.dest_dir))
 
         # Should fail if any files are missing
         self.assertFalse(success)
@@ -143,7 +143,7 @@ class TestPreviewCollector(unittest.TestCase):
         new_dest = self.dest_dir / "subfolder" / "package"
         items = [self.create_preview_item(self.preview1, "SH010", "COMP")]
 
-        success = self.collector.collect_files(items, str(new_dest))
+        success, failed_files = self.collector.collect_files(items, str(new_dest))
 
         self.assertTrue(success)
         self.assertTrue(new_dest.exists())
@@ -236,7 +236,7 @@ class TestPreviewCollector(unittest.TestCase):
         """Test collecting empty list."""
         items = []
 
-        success = self.collector.collect_files(items, str(self.dest_dir))
+        success, failed_files = self.collector.collect_files(items, str(self.dest_dir))
 
         # Should fail with no items
         self.assertFalse(success)

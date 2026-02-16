@@ -74,14 +74,15 @@ class UploadTracker:
         try:
             with open(marker_path, "w", encoding="utf-8") as f:
                 f.write(f"Uploaded: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Destination: fTrack Review\n")
+                f.write(f"Destination: Local Collection\n")
                 f.write(f"User: {username}\n")
                 f.write(f"Package: {package_name}\n")
                 if notes:
                     f.write(f"Notes: {notes}\n")
 
             return True
-        except Exception:
+        except Exception as e:
+            print(f"Error creating marker: {e}")
             return False
 
     def read_marker(self, marker_path: str) -> Optional[dict]:
@@ -128,12 +129,13 @@ class UploadTracker:
                 for item in preview_items:
                     safe_shot = item.shot_id.replace("|", "-")
                     safe_step = item.step_id.replace("|", "-")
-                    # Format: timestamp|Review|shot_id|step|fTrack|username|package_name
-                    entry = f"{timestamp}|Review|{safe_shot}|{safe_step}|fTrack|{username}|{safe_package}\n"
+                    # Format: timestamp|Review|shot_id|step|Local|username|package_name
+                    entry = f"{timestamp}|Review|{safe_shot}|{safe_step}|Local|{username}|{safe_package}\n"
                     f.write(entry)
 
             return True
-        except Exception:
+        except Exception as e:
+            print(f"Error appending to history log: {e}")
             return False
 
     def get_history(self, shot_id: str) -> List[dict]:

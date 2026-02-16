@@ -62,7 +62,7 @@ class TestEndToEndWorkflow(unittest.TestCase):
         package_dir = self.dest_dir / "TEST_20260211"
         package_dir.mkdir()
 
-        success = collector.collect_files(comp_previews, str(package_dir))
+        success, failed_files = collector.collect_files(comp_previews, str(package_dir))
         self.assertTrue(success)
 
         # Verify files copied
@@ -190,7 +190,7 @@ class TestEndToEndWorkflow(unittest.TestCase):
             cancel_after[0] += 1
             return cancel_after[0] > 2  # Cancel after 2 files
 
-        success = collector.collect_files(
+        success, failed_files = collector.collect_files(
             previews, str(package_dir), cancel_check=cancel_check
         )
 

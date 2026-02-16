@@ -59,7 +59,7 @@ class TestUploadTracker(unittest.TestCase):
         # Check marker content
         marker_content = markers[0].read_text()
         self.assertIn("Uploaded:", marker_content)
-        self.assertIn("fTrack Review", marker_content)
+        self.assertIn("Local Collection", marker_content)
         self.assertIn(package_name, marker_content)
         self.assertIn("Test notes", marker_content)
 

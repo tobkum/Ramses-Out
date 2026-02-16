@@ -58,8 +58,8 @@ def load_config() -> Dict[str, Any]:
                 config = json.load(f)
             # Merge with defaults (in case new keys were added)
             return {**DEFAULT_CONFIG, **config}
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Failed to load Out config: {e}")
 
     # Create default config
     save_config(DEFAULT_CONFIG)
@@ -79,12 +79,14 @@ def save_config(config: Dict[str, Any]) -> bool:
             with os.fdopen(fd, "w", encoding="utf-8") as tf:
                 json.dump(config, tf, indent=2)
             os.replace(temp_path, str(config_path))
-        except Exception:
+        except Exception as e:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+            print(f"Error saving Out config: {e}")
             raise
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Critical error saving Out config: {e}")
         return False
 
 
@@ -105,8 +107,8 @@ def load_ramses_settings() -> Dict[str, Any]:
                 "clientPath": settings.get("clientPath", ""),
                 "clientPort": settings.get("clientPort", 18185),
             }
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Failed to load common Ramses settings: {e}")
 
     return default_settings
 
@@ -123,8 +125,8 @@ def save_ramses_settings(client_path: Optional[str] = None, client_port: Optiona
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 existing = json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Failed to read existing Ramses settings during save: {e}")
 
     # Update only the specified values
     if client_path is not None:
@@ -139,10 +141,12 @@ def save_ramses_settings(client_path: Optional[str] = None, client_port: Optiona
             with os.fdopen(fd, "w", encoding="utf-8") as tf:
                 json.dump(existing, tf, indent=4)
             os.replace(temp_path, str(config_path))
-        except Exception:
+        except Exception as e:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+            print(f"Error saving common Ramses settings: {e}")
             raise
         return True
-    except Exception:
+    except Exception as e:
+        print(f"Critical error saving common Ramses settings: {e}")
         return False
