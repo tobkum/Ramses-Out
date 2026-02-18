@@ -184,7 +184,8 @@ class PreviewScanner:
 
         return str(most_recent_marker), sent_date, f"Sent {sent_date}"
 
-    def filter_by_date(self, items: List[PreviewItem], date_range: str) -> List[PreviewItem]:
+    @staticmethod
+    def filter_by_date(items: List[PreviewItem], date_range: str) -> List[PreviewItem]:
         """Filter preview items by date range.
 
         Args:
@@ -217,7 +218,8 @@ class PreviewScanner:
 
         return filtered
 
-    def filter_by_sequence(self, items: List[PreviewItem], sequence: str) -> List[PreviewItem]:
+    @staticmethod
+    def filter_by_sequence(items: List[PreviewItem], sequence: str) -> List[PreviewItem]:
         """Filter preview items by sequence.
 
         Args:
@@ -232,7 +234,8 @@ class PreviewScanner:
 
         return [item for item in items if item.sequence_id == sequence]
 
-    def filter_by_step(self, items: List[PreviewItem], step: str) -> List[PreviewItem]:
+    @staticmethod
+    def filter_by_step(items: List[PreviewItem], step: str) -> List[PreviewItem]:
         """Filter preview items by step.
 
         Args:

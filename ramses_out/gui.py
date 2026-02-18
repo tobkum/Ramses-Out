@@ -47,32 +47,15 @@ class ScanThread(QThread):
     finished = Signal(list)  # Emits list of PreviewItem
     error = Signal(str)
 
-    def __init__(self, project_root: str, project=None):
+    def __init__(self, project_root: str):
         super().__init__()
         self.project_root = project_root
-        self.project = project
 
     def run(self):
         """Run scan in background."""
         try:
             scanner = PreviewScanner(self.project_root)
             previews = scanner.scan_project()
-            
-            # Resolve sequences in background
-            if self.project and previews:
-                try:
-                    shot_seq_map = {}
-                    for seq in self.project.sequences():
-                        seq_name = seq.shortName()
-                        for shot in seq.shots():
-                            shot_seq_map[shot.shortName()] = seq_name
-
-                    for preview in previews:
-                        if not preview.sequence_id and preview.shot_id in shot_seq_map:
-                            preview.sequence_id = shot_seq_map[preview.shot_id]
-                except Exception as e:
-                    print(f"Warning: Failed to resolve sequences in background: {e}")
-
             self.finished.emit(previews)
         except Exception as e:
             self.error.emit(str(e))
@@ -145,9 +128,10 @@ class RamsesOutWindow(QMainWindow):
         # Load configuration
         self.config = load_config()
 
-        # Cache sequences and steps from API (source of truth)
+        # Cache sequences, steps, and shot→sequence map from API (source of truth)
         self.api_sequences: List[str] = []
         self.api_steps: List[str] = []
+        self.shot_seq_map: dict = {}
 
         # Data
         self.all_previews: List[PreviewItem] = []
@@ -178,9 +162,18 @@ class RamsesOutWindow(QMainWindow):
             return
 
         try:
-            # Get all sequences from API
+            # Get all sequences from API and build shot→sequence map
             sequences = self.current_project.sequences()
-            self.api_sequences = [seq.shortName() for seq in sequences if seq.shortName()]
+            self.api_sequences = []
+            self.shot_seq_map = {}
+            for seq in sequences:
+                seq_name = seq.shortName()
+                if seq_name:
+                    self.api_sequences.append(seq_name)
+                for shot in seq.shots():
+                    shot_name = shot.shortName()
+                    if shot_name and seq_name:
+                        self.shot_seq_map[shot_name] = seq_name
 
             # Get all shot production steps from API
             from ramses import StepType
@@ -190,6 +183,7 @@ class RamsesOutWindow(QMainWindow):
             print(f"Warning: Failed to cache API data: {e}")
             self.api_sequences = []
             self.api_steps = []
+            self.shot_seq_map = {}
 
     def _populate_filter_dropdowns(self):
         """Populate filter dropdowns from API data (source of truth)."""
@@ -509,7 +503,7 @@ class RamsesOutWindow(QMainWindow):
             return
 
         # Start scan thread
-        self.scan_thread = ScanThread(project_path, self.current_project)
+        self.scan_thread = ScanThread(project_path)
         self.scan_thread.finished.connect(self._on_scan_finished)
         self.scan_thread.error.connect(self._on_scan_error)
         self.scan_thread.start()
@@ -520,8 +514,16 @@ class RamsesOutWindow(QMainWindow):
 
     def _on_scan_finished(self, previews: List[PreviewItem]):
         """Handle scan completion."""
+        # Refresh API cache (sequences, steps, shot map) so dropdowns stay current
+        self._cache_api_data()
+
+        # Resolve sequence IDs from cached map
+        for preview in previews:
+            if not preview.sequence_id and preview.shot_id in self.shot_seq_map:
+                preview.sequence_id = self.shot_seq_map[preview.shot_id]
+
         self.all_previews = previews
-        # Note: ScanThread already resolves sequences if project was provided
+        self._populate_filter_dropdowns()
         self._apply_filters()
 
         # Update UI
@@ -545,25 +547,22 @@ class RamsesOutWindow(QMainWindow):
             self._populate_table()
             return
 
-        # Create scanner for filtering
-        scanner = PreviewScanner("")
-
         # Apply filters
         filtered = self.all_previews
 
         # Date filter
         date_range = self.date_filter.currentText()
-        filtered = scanner.filter_by_date(filtered, date_range)
+        filtered = PreviewScanner.filter_by_date(filtered, date_range)
 
         # Sequence filter
         seq = self.seq_filter.currentText()
         if seq != "All Sequences":
-            filtered = scanner.filter_by_sequence(filtered, seq)
+            filtered = PreviewScanner.filter_by_sequence(filtered, seq)
 
         # Step filter
         step = self.step_filter.currentText()
         if step != "All Steps":
-            filtered = scanner.filter_by_step(filtered, step)
+            filtered = PreviewScanner.filter_by_step(filtered, step)
 
         self.filtered_previews = filtered
         self._populate_table()
@@ -719,21 +718,21 @@ class RamsesOutWindow(QMainWindow):
 
             # Open folder in file manager (cross-platform)
             self._open_folder(dest)
+        elif self.collection_thread and self.collection_thread._cancel_requested:
+            pass  # User cancelled — no error dialog needed
+        elif failed_files:
+            error_msg = "Failed to collect some files:\n\n"
+            for fname, error in failed_files[:10]:  # Limit to 10
+                error_msg += f"• {fname}: {error}\n"
+            if len(failed_files) > 10:
+                error_msg += f"\n...and {len(failed_files) - 10} more."
+            QMessageBox.critical(self, "Collection Incomplete", error_msg)
         else:
-            if failed_files:
-                error_msg = "Failed to collect some files:\n\n"
-                for fname, error in failed_files[:10]:  # Limit to 10
-                    error_msg += f"• {fname}: {error}\n"
-                if len(failed_files) > 10:
-                    error_msg += f"\n...and {len(failed_files) - 10} more."
-                
-                QMessageBox.critical(self, "Collection Incomplete", error_msg)
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Collection Failed",
-                    "Failed to collect files. Please check the destination folder."
-                )
+            QMessageBox.critical(
+                self,
+                "Collection Failed",
+                "Failed to collect files. Please check the destination folder."
+            )
 
     def _on_collection_error(self, error: str, dialog: QProgressDialog):
         """Handle collection error."""
