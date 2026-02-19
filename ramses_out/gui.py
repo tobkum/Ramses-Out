@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -112,6 +113,41 @@ class ConnectionWorker(QThread):
             self.finished.emit(False)
 
 
+class ApiCacheThread(QThread):
+    """Fetches sequences, steps and shot→sequence map from the Ramses daemon.
+
+    Runs in a background thread to avoid blocking the main UI thread with
+    N+1 socket calls (one per sequence to fetch its shots).
+    """
+
+    finished = Signal(list, list, dict)  # api_sequences, api_steps, shot_seq_map
+
+    def __init__(self, project, parent=None):
+        super().__init__(parent)
+        self.project = project
+
+    def run(self):
+        try:
+            from ramses import StepType
+            sequences = self.project.sequences()
+            api_sequences: list = []
+            shot_seq_map: dict = {}
+            for seq in sequences:
+                seq_name = seq.shortName()
+                if seq_name:
+                    api_sequences.append(seq_name)
+                for shot in seq.shots():
+                    shot_name = shot.shortName()
+                    if shot_name and seq_name:
+                        shot_seq_map[shot_name] = seq_name
+            steps = self.project.steps(StepType.SHOT_PRODUCTION)
+            api_steps = [s.shortName() for s in steps if s.shortName()]
+            self.finished.emit(api_sequences, api_steps, shot_seq_map)
+        except Exception as e:
+            print(f"Warning: Failed to cache API data: {e}")
+            self.finished.emit([], [], {})
+
+
 class RamsesOutWindow(QMainWindow):
     """Main window for Ramses Out."""
 
@@ -144,6 +180,10 @@ class RamsesOutWindow(QMainWindow):
         self.scan_thread: Optional[ScanThread] = None
         self.collection_thread: Optional[CollectionThread] = None
         self._connection_worker: Optional[ConnectionWorker] = None
+        self._api_cache_thread: Optional[ApiCacheThread] = None
+
+        # Non-modal settings dialog reference (prevents GC and duplicate opens)
+        self._settings_dialog = None
 
         # Auto-reconnect timer
         self._reconnect_timer = QTimer(self)
@@ -156,34 +196,38 @@ class RamsesOutWindow(QMainWindow):
         # Connect asynchronously on startup
         QTimer.singleShot(100, self._try_connect)
 
-    def _cache_api_data(self):
-        """Cache sequences and steps from Ramses API (source of truth)."""
+    def _start_api_cache(self):
+        """Start background fetch of sequences, steps and shot→sequence map.
+
+        Replaces the old synchronous ``_cache_api_data`` which blocked the
+        main thread with N+1 daemon socket calls (one per sequence).
+        Results arrive in ``_on_api_cache_finished``.
+        """
         if not self.current_project:
             return
+        if self._api_cache_thread and self._api_cache_thread.isRunning():
+            return
+        self._api_cache_thread = ApiCacheThread(self.current_project, parent=self)
+        self._api_cache_thread.finished.connect(self._on_api_cache_finished)
+        self._api_cache_thread.start()
 
-        try:
-            # Get all sequences from API and build shot→sequence map
-            sequences = self.current_project.sequences()
-            self.api_sequences = []
-            self.shot_seq_map = {}
-            for seq in sequences:
-                seq_name = seq.shortName()
-                if seq_name:
-                    self.api_sequences.append(seq_name)
-                for shot in seq.shots():
-                    shot_name = shot.shortName()
-                    if shot_name and seq_name:
-                        self.shot_seq_map[shot_name] = seq_name
+    def _on_api_cache_finished(self, api_sequences: list, api_steps: list, shot_seq_map: dict):
+        """Store freshly fetched API data and refresh dependent UI."""
+        self.api_sequences = api_sequences
+        self.api_steps = api_steps
+        self.shot_seq_map = shot_seq_map
 
-            # Get all shot production steps from API
-            from ramses import StepType
-            steps = self.current_project.steps(StepType.SHOT_PRODUCTION)
-            self.api_steps = [step.shortName() for step in steps if step.shortName()]
-        except Exception as e:
-            print(f"Warning: Failed to cache API data: {e}")
-            self.api_sequences = []
-            self.api_steps = []
-            self.shot_seq_map = {}
+        # Resolve sequence IDs for any previews that were scanned before this
+        # cache result arrived.
+        sequences_changed = False
+        for preview in self.all_previews:
+            if not preview.sequence_id and preview.shot_id in self.shot_seq_map:
+                preview.sequence_id = self.shot_seq_map[preview.shot_id]
+                sequences_changed = True
+
+        self._populate_filter_dropdowns()
+        if sequences_changed:
+            self._apply_filters()
 
     def _populate_filter_dropdowns(self):
         """Populate filter dropdowns from API data (source of truth)."""
@@ -394,11 +438,19 @@ class RamsesOutWindow(QMainWindow):
                     self._update_selection_label()
 
     def _show_settings(self):
-        """Show settings dialog."""
-        dialog = SettingsDialog(self.config, self)
-        if dialog.exec():
-            # Save config after dialog is accepted
+        """Show settings dialog (non-modal so background scans keep running)."""
+        if self._settings_dialog is not None:
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return
+        self._settings_dialog = SettingsDialog(self.config, self)
+        self._settings_dialog.finished.connect(self._on_settings_finished)
+        self._settings_dialog.show()
+
+    def _on_settings_finished(self, result: int):
+        if result == QDialog.Accepted:
             save_config(self.config)
+        self._settings_dialog = None
 
     def _open_folder(self, folder_path: str):
         """Open folder in file manager (cross-platform)."""
@@ -450,8 +502,7 @@ class RamsesOutWindow(QMainWindow):
                 pid = self.current_project.shortName()
                 pname = self.current_project.name()
                 self.project_label.setText(f"{pid} - {pname}")
-            self._cache_api_data()
-            self._populate_filter_dropdowns()
+            self._start_api_cache()  # populates dropdowns when done
 
             # Enable action buttons
             self.mark_sent_btn.setEnabled(True)
@@ -514,22 +565,23 @@ class RamsesOutWindow(QMainWindow):
 
     def _on_scan_finished(self, previews: List[PreviewItem]):
         """Handle scan completion."""
-        # Refresh API cache (sequences, steps, shot map) so dropdowns stay current
-        self._cache_api_data()
+        self.all_previews = previews
 
-        # Resolve sequence IDs from cached map
-        for preview in previews:
+        # Resolve sequences using whatever API data is already cached.
+        for preview in self.all_previews:
             if not preview.sequence_id and preview.shot_id in self.shot_seq_map:
                 preview.sequence_id = self.shot_seq_map[preview.shot_id]
 
-        self.all_previews = previews
-        self._populate_filter_dropdowns()
         self._apply_filters()
 
-        # Update UI
         from datetime import datetime
         self.last_scan_label.setText(f"Last Scan: {datetime.now().strftime('%H:%M:%S')}")
         self.table.setEnabled(True)
+
+        # Refresh API cache in background so any new sequences/steps added since
+        # the last cache run are picked up; _on_api_cache_finished will re-resolve
+        # and refresh the table only if something actually changed.
+        self._start_api_cache()
 
     def _on_scan_error(self, error: str):
         """Handle scan error."""

@@ -56,7 +56,9 @@ class PreviewScanner:
                         # Scan for preview files in _preview folder
                         for preview_file in preview_folder.iterdir():
                             if preview_file.is_file() and preview_file.suffix.lower() in ['.mp4', '.mov']:
-                                preview = self._parse_preview_file(preview_file)
+                                preview = self._parse_preview_file(
+                                    preview_file, shot_folder, step_folder
+                                )
                                 if preview:
                                     previews.append(preview)
                 except (PermissionError, OSError):
@@ -68,57 +70,58 @@ class PreviewScanner:
 
         return previews
 
-    def _parse_preview_file(self, file_path: Path) -> Optional[PreviewItem]:
+    def _parse_preview_file(
+        self, file_path: Path, shot_folder: Path, step_folder: Path
+    ) -> Optional[PreviewItem]:
         """Parse a preview file and create PreviewItem.
 
-        Tries to extract project/shot/step from the filename first
-        (expected format: {PROJECT}_S_{SHOT}_{STEP}.{ext}).
-        Falls back to extracting from the folder structure when the
-        filename doesn't match.
+        Uses the folder context supplied by ``scan_project`` (which already
+        walked the correct depth) as the primary source of IDs.  Falls back
+        to filename-based parsing only when the folder name doesn't contain
+        the expected ``_S_`` Ramses delimiter.
+
+        Using ``rsplit('_S_', 1)`` (split at the *last* occurrence) handles
+        project names that themselves contain ``_S_`` without producing extra
+        parts.
 
         Args:
-            file_path: Path to the preview file
+            file_path: Path to the preview file.
+            shot_folder: The shot directory (parent of the step directory).
+            step_folder: The step directory (parent of ``_preview``).
 
         Returns:
-            PreviewItem or None if parsing fails
+            PreviewItem or None if parsing fails.
         """
         project_id = None
         shot_id = None
         step_id = None
 
         try:
-            # Try filename-based parsing: {PROJECT}_S_{SHOT}_{STEP}.{ext}
-            filename = file_path.stem
-            parts = filename.split('_S_')
-
-            if len(parts) == 2:
-                rest_parts = parts[1].split('_', 1)
-                if len(rest_parts) == 2:
-                    project_id = parts[0]
-                    shot_id = rest_parts[0]
-                    step_id = rest_parts[1]
-
-            # Fallback: extract from folder structure
-            # _preview -> step_folder -> shot_folder -> 05-SHOTS
-            if not all((project_id, shot_id, step_id)):
-                step_folder = file_path.parent.parent   # e.g. Testprojec_S_120_Comp
-                shot_folder = step_folder.parent         # e.g. Testprojec_S_120
-
-                # Use rsplit to handle potential underscores in project names
-                shot_parts = shot_folder.name.rsplit('_S_', 1)
-                if len(shot_parts) != 2:
-                    return None
-
+            # Primary: derive IDs from the known folder structure.
+            # rsplit at last '_S_' so project names containing '_S_' are handled.
+            shot_parts = shot_folder.name.rsplit('_S_', 1)
+            if len(shot_parts) == 2:
                 project_id = shot_parts[0]
                 shot_id = shot_parts[1]
 
-                # Step ID: strip the shot folder prefix from step folder name
-                step_name = step_folder.name
+                # Step ID: strip the shot-folder prefix from the step-folder name.
                 prefix = shot_folder.name + '_'
-                if step_name.startswith(prefix):
-                    step_id = step_name[len(prefix):]
-                else:
-                    step_id = step_name
+                step_id = (
+                    step_folder.name[len(prefix):]
+                    if step_folder.name.startswith(prefix)
+                    else step_folder.name
+                )
+
+            # Fallback: filename-based parsing when folder names lack '_S_'.
+            if not all((project_id, shot_id, step_id)):
+                parts = file_path.stem.rsplit('_S_', 1)
+                if len(parts) != 2:
+                    return None
+                project_id = parts[0]
+                rest = parts[1].split('_', 1)
+                if len(rest) != 2:
+                    return None
+                shot_id, step_id = rest
 
             # Get file info
             stat = file_path.stat()
