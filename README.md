@@ -10,7 +10,7 @@ A small desktop tool for packaging and tracking preview deliveries in a [Ramses]
 
 When shots are published in Ramses, the pipeline writes preview files (`.mp4` / `.mov`) into each shot's `_preview` folder. Ramses Out scans those folders, shows you what's new or updated since the last send, and lets you copy a selection to a delivery folder in one click.
 
-It also keeps track of what you've already sent — per file, with timestamps — so you don't accidentally include the same cut twice in a package, and so the rest of the team can see the delivery history without digging through emails.
+It also keeps track of what you've already sent — per file, with timestamps — so you don't accidentally include the same preview twice in a package, and so the rest of the team can see the delivery history without digging through emails.
 
 ---
 
