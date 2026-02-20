@@ -20,9 +20,9 @@ It also keeps track of what you've already sent â€” per file, with timestamps â€
 2. Use the filters (sequence, step, date) to narrow down what you're looking at.
 3. Select the shots you want to include in the package.
 4. Click **Collect to Folder**. Pick a destination (or use the default configured in Settings). The files are copied and a `shot_list.txt` manifest is written alongside them.
-5. The selected shots are marked as sent. Next time you open the tool, they'll show a "Sent" date instead of "Ready", and won't clutter the list.
+5. Click **Mark as Sent** to record the delivery. Next time you open the tool, those shots will show a "Sent" date instead of "Ready".
 
-If you need to mark shots as sent without copying files (e.g. they were delivered another way), use **Mark as Sent** instead.
+If you delivered the files another way and just need to update the tracking without copying anything, use **Mark as Sent** on its own.
 
 ---
 

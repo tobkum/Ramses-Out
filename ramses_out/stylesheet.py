@@ -348,7 +348,6 @@ QTableWidget {
 
 QTableWidget::item {
     padding: 6px;
-    color: #e0e0e0;
     font-size: 12px;
 }
 
