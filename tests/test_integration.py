@@ -145,8 +145,8 @@ class TestEndToEndWorkflow(unittest.TestCase):
         tracker.mark_as_sent(updated_previews, "TEST_20260211_V2")
 
         # Verify history
-        history = tracker.get_history("SH010")
-        self.assertEqual(len(history), 2)  # Two uploads for SH010
+        history = tracker.get_history("SH010", "TEST")
+        self.assertEqual(len(history), 2)  # Two uploads for SH010 in project TEST
 
     def test_workflow_with_filtering(self):
         """Test workflow with date and step filtering."""

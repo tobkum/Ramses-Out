@@ -80,7 +80,7 @@ class TestUploadTracker(unittest.TestCase):
         self.assertEqual(metadata["package"], "TEST_20260211")
 
     def test_append_to_log(self):
-        """Test appending to history log."""
+        """Test appending to history log with project_id."""
         items = [
             self.create_preview_item("SH010", "COMP"),
             self.create_preview_item("SH020", "ANIM"),
@@ -98,19 +98,32 @@ class TestUploadTracker(unittest.TestCase):
         self.assertIn("COMP", log_content)
         self.assertIn("ANIM", log_content)
         self.assertIn("TEST_20260211", log_content)
+        self.assertIn("|TEST\n", log_content)  # Should have project_id at the end
 
     def test_get_history(self):
-        """Test retrieving upload history for a shot."""
+        """Test retrieving upload history for a shot filtered by project."""
         items = [self.create_preview_item("SH010", "COMP")]
 
         self.tracker.append_to_log(items, "TEST_20260211_V1")
-        self.tracker.append_to_log(items, "TEST_20260211_V2")
+        
+        # Add entry for same shot but different project
+        other_item = self.create_preview_item("SH010", "COMP")
+        other_item.project_id = "OTHER"
+        self.tracker.append_to_log([other_item], "OTHER_PACKAGE")
 
-        history = self.tracker.get_history("SH010")
+        # Get history for SH010 in project TEST
+        history_test = self.tracker.get_history("SH010", "TEST")
+        self.assertEqual(len(history_test), 1)
+        self.assertEqual(history_test[0]["project_id"], "TEST")
 
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0]["shot_id"], "SH010")
-        self.assertEqual(history[0]["step"], "COMP")
+        # Get history for SH010 in project OTHER
+        history_other = self.tracker.get_history("SH010", "OTHER")
+        self.assertEqual(len(history_other), 1)
+        self.assertEqual(history_other[0]["project_id"], "OTHER")
+
+        # Legacy behavior: no project_id filters nothing
+        history_all = self.tracker.get_history("SH010")
+        self.assertEqual(len(history_all), 2)
 
     def test_mark_as_sent_multiple(self):
         """Test marking multiple previews as sent."""
