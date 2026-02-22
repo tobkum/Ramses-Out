@@ -185,8 +185,9 @@ class UploadTracker:
                     for item in preview_items:
                         safe_shot = item.shot_id.replace("|", "-")
                         safe_step = item.step_id.replace("|", "-")
-                        # Format: timestamp|Review|shot_id|step|Local|username|package_name
-                        entry = f"{timestamp}|Review|{safe_shot}|{safe_step}|Local|{username}|{safe_package}\n"
+                        safe_project = item.project_id.replace("|", "-")
+                        # Format: timestamp|Review|shot_id|step|Local|username|package_name|project_id
+                        entry = f"{timestamp}|Review|{safe_shot}|{safe_step}|Local|{username}|{safe_package}|{safe_project}\n"
                         f.write(entry)
             self._history_cache = None  # invalidate cache after write
             return True
@@ -213,13 +214,14 @@ class UploadTracker:
                                 "destination": parts[4],
                                 "user": parts[5],
                                 "package": parts[6],
+                                "project_id": parts[7] if len(parts) >= 8 else None,
                             }
                             cache.setdefault(parts[2], []).append(entry)
             except Exception:
                 pass
         self._history_cache = cache
 
-    def get_history(self, shot_id: str) -> List[dict]:
+    def get_history(self, shot_id: str, project_id: Optional[str] = None) -> List[dict]:
         """Get upload history for a specific shot.
 
         Uses an in-memory cache so repeated queries do not re-read the entire
@@ -228,12 +230,19 @@ class UploadTracker:
 
         Args:
             shot_id: Shot ID to query
+            project_id: Optional Project ID to filter by. If None, returns all
+                        matches for the shot (legacy behavior).
 
         Returns:
             List of upload history entries
         """
         self._ensure_history_cache()
-        return list(self._history_cache.get(shot_id, []))  # type: ignore[union-attr]
+        entries = self._history_cache.get(shot_id, [])  # type: ignore[union-attr]
+        
+        if project_id:
+            return [e for e in entries if e.get("project_id") == project_id or e.get("project_id") is None]
+        
+        return list(entries)
 
     def mark_as_sent(self, preview_items: List[PreviewItem], package_name: str, notes: str = "") -> bool:
         """Mark multiple previews as sent.
