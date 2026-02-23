@@ -115,7 +115,9 @@ class SettingsDialog(QDialog):
         # Save Ramses settings to common config (shared by all tools)
         client_port = 18185
         try:
-            client_port = int(self.daemon_port_edit.text())
+            port_val = int(self.daemon_port_edit.text())
+            if 1 <= port_val <= 65535:
+                client_port = port_val
         except ValueError:
             pass
 

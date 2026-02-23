@@ -3,6 +3,7 @@
 import contextlib
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -115,16 +116,30 @@ class UploadTracker:
         # Get username
         username = self._get_username()
 
-        # Write marker file
+        # Write marker file atomically: write to a temp file first, then rename
+        content_lines = [
+            f"Uploaded: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
+            "Destination: Local Collection\n",
+            f"User: {username}\n",
+            f"Package: {package_name}\n",
+        ]
+        if notes:
+            content_lines.append(f"Notes: {notes}\n")
+        content = "".join(content_lines)
         try:
-            with open(marker_path, "w", encoding="utf-8") as f:
-                f.write(f"Uploaded: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Destination: Local Collection\n")
-                f.write(f"User: {username}\n")
-                f.write(f"Package: {package_name}\n")
-                if notes:
-                    f.write(f"Notes: {notes}\n")
-
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(preview_folder), prefix=".marker_", suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp_path, str(marker_path))
+            except Exception:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+                raise
             return True
         except Exception as e:
             print(f"Error creating marker: {e}")
@@ -173,23 +188,26 @@ class UploadTracker:
         Returns:
             True if appended successfully
         """
-        username = self._get_username().replace("|", "-")
+        username = self._get_username().replace("|", "-").replace("\n", " ").replace("\r", " ")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        
+
         # Sanitize fields to prevent log corruption
-        safe_package = package_name.replace("|", "-")
+        safe_package = package_name.replace("|", "-").replace("\n", " ").replace("\r", " ")
 
         try:
             with _log_lock(self.history_log):
                 with open(self.history_log, "a", encoding="utf-8") as f:
                     for item in preview_items:
-                        safe_shot = item.shot_id.replace("|", "-")
-                        safe_step = item.step_id.replace("|", "-")
-                        safe_project = item.project_id.replace("|", "-")
+                        safe_shot = item.shot_id.replace("|", "-").replace("\n", " ").replace("\r", " ")
+                        safe_step = item.step_id.replace("|", "-").replace("\n", " ").replace("\r", " ")
+                        safe_project = item.project_id.replace("|", "-").replace("\n", " ").replace("\r", " ")
                         # Format: timestamp|Review|shot_id|step|Local|username|package_name|project_id
                         entry = f"{timestamp}|Review|{safe_shot}|{safe_step}|Local|{username}|{safe_package}|{safe_project}\n"
                         f.write(entry)
-            self._history_cache = None  # invalidate cache after write
+                # Invalidate inside the lock so readers that acquire the lock after
+                # us see None and must re-read — no window where the cache is stale
+                # but the file has already been updated.
+                self._history_cache = None
             return True
         except Exception as e:
             print(f"Error appending to history log: {e}")

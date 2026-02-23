@@ -1,9 +1,12 @@
 """Main GUI for Ramses Out."""
 
+import logging
 import sys
 import os
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -109,7 +112,8 @@ class ConnectionWorker(QThread):
             if not ram.online():
                 ram.connect()
             self.finished.emit(ram.online() and ram.project() is not None)
-        except Exception:
+        except Exception as e:
+            logger.warning("Ramses daemon connection failed: %s", e)
             self.finished.emit(False)
 
 
@@ -144,7 +148,7 @@ class ApiCacheThread(QThread):
             api_steps = [s.shortName() for s in steps if s.shortName()]
             self.finished.emit(api_sequences, api_steps, shot_seq_map)
         except Exception as e:
-            print(f"Warning: Failed to cache API data: {e}")
+            logger.warning("Failed to cache API data: %s", e)
             self.finished.emit([], [], {})
 
 
@@ -794,6 +798,16 @@ class RamsesOutWindow(QMainWindow):
             "Collection Error",
             f"Error during collection: {error}"
         )
+
+    def closeEvent(self, event):
+        """Stop background threads before the window is destroyed."""
+        self._reconnect_timer.stop()
+        if self.collection_thread and self.collection_thread.isRunning():
+            self.collection_thread.cancel()
+            self.collection_thread.wait(5000)
+        if self.scan_thread and self.scan_thread.isRunning():
+            self.scan_thread.wait(5000)
+        super().closeEvent(event)
 
     def _mark_as_sent(self):
         """Mark selected previews as sent."""
