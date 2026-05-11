@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from . import paths  # noqa: F401 — side effect: lib/ on sys.path
-from ramses_config_paths import get_ramses_config_dir  # noqa: F401 — re-exported
+from ramses_config_paths import get_ramses_config_dir, deep_merge  # noqa: F401 — re-exported
 
 DEFAULT_CONFIG = {
     "review": {
@@ -33,17 +33,6 @@ def get_ramses_config_path() -> Path:
     return get_ramses_config_dir() / "ramses_addons_settings.json"
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively merge *override* into *base*, returning a new dict."""
-    result = base.copy()
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
 def load_config() -> Dict[str, Any]:
     """Load Out configuration from disk, or create default if not exists."""
     config_path = get_config_path()
@@ -53,7 +42,7 @@ def load_config() -> Dict[str, Any]:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             # Deep-merge so nested default keys are preserved
-            return _deep_merge(DEFAULT_CONFIG, config)
+            return deep_merge(DEFAULT_CONFIG, config)
         except Exception as e:
             print(f"Warning: Failed to load Out config: {e}")
 

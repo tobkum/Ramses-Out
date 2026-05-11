@@ -804,9 +804,22 @@ class RamsesOutWindow(QMainWindow):
         self._reconnect_timer.stop()
         if self.collection_thread and self.collection_thread.isRunning():
             self.collection_thread.cancel()
-            self.collection_thread.wait(5000)
+            if not self.collection_thread.wait(5000):
+                # Thread didn't exit cleanly — disconnect signals so dangling
+                # callbacks cannot fire into a destroyed widget.
+                try:
+                    self.collection_thread.finished.disconnect()
+                    self.collection_thread.error.disconnect()
+                    self.collection_thread.progress.disconnect()
+                except RuntimeError:
+                    pass
         if self.scan_thread and self.scan_thread.isRunning():
-            self.scan_thread.wait(5000)
+            if not self.scan_thread.wait(5000):
+                try:
+                    self.scan_thread.finished.disconnect()
+                    self.scan_thread.error.disconnect()
+                except RuntimeError:
+                    pass
         super().closeEvent(event)
 
     def _mark_as_sent(self):
