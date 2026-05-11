@@ -2,17 +2,12 @@
 
 import os
 import re
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
 from .models import PreviewItem
-
-# Add shared Ramses API library path (project root)
-lib_path = Path(__file__).parent.parent.parent / "lib"
-if str(lib_path) not in sys.path:
-    sys.path.insert(0, str(lib_path))
+from . import paths  # noqa: F401 — side effect: lib/ on sys.path
 
 from ramses.constants import FolderNames
 

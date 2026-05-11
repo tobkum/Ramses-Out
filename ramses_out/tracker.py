@@ -2,19 +2,21 @@
 
 import contextlib
 import os
-import sys
 import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Add shared Ramses API library path (project root)
-lib_path = Path(__file__).parent.parent.parent / "lib"
-if str(lib_path) not in sys.path:
-    sys.path.insert(0, str(lib_path))
-
 from .models import PreviewItem
+from . import paths  # noqa: F401 — side effect: lib/ on sys.path
+
+
+def _write_and_close(fd: int) -> None:
+    try:
+        os.write(fd, str(os.getpid()).encode())
+    finally:
+        os.close(fd)
 
 
 @contextlib.contextmanager
@@ -32,8 +34,7 @@ def _log_lock(log_path: Path, timeout: float = 10.0):
     while not acquired:
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, str(os.getpid()).encode())
-            os.close(fd)
+            _write_and_close(fd)
             acquired = True
         except FileExistsError:
             if time.monotonic() >= deadline:
@@ -43,8 +44,7 @@ def _log_lock(log_path: Path, timeout: float = 10.0):
                     pass
                 # One final attempt; propagate if it still fails.
                 fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(fd, str(os.getpid()).encode())
-                os.close(fd)
+                _write_and_close(fd)
                 acquired = True
             else:
                 time.sleep(0.05)

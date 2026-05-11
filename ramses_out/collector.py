@@ -60,7 +60,9 @@ class PreviewCollector:
             except Exception as e:
                 failed_files.append((source.name, str(e)))
 
-        # Success if we copied at least some files and had no failures
+        # Success: nothing to copy is still success; otherwise require all files copied
+        if total == 0:
+            return True, []
         return (copied_count > 0 and len(failed_files) == 0), failed_files
 
     def _natural_sort_key(self, s: str):

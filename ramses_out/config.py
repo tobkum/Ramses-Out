@@ -2,9 +2,11 @@
 
 import json
 import os
-import platform
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+from . import paths  # noqa: F401 — side effect: lib/ on sys.path
+from ramses_config_paths import get_ramses_config_dir  # noqa: F401 — re-exported
 
 DEFAULT_CONFIG = {
     "review": {
@@ -26,26 +28,20 @@ def get_config_path() -> Path:
     return get_config_dir() / "out_config.json"
 
 
-def get_ramses_config_dir() -> Path:
-    """Get the common Ramses configuration directory (shared by all tools)."""
-    system = platform.system()
-    if system == 'Windows':
-        config_dir = Path(os.path.expandvars('${APPDATA}/Ramses/Config'))
-    elif system == 'Linux':
-        config_dir = Path.home() / '.config' / 'Ramses' / 'Config'
-    elif system == 'Darwin':  # macOS
-        config_dir = Path.home() / 'Library' / 'Application Support' / 'Ramses' / 'Config'
-    else:
-        # Fallback
-        config_dir = Path.home() / '.config' / 'Ramses' / 'Config'
-
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir
-
-
 def get_ramses_config_path() -> Path:
     """Get the path to the common Ramses settings file."""
     return get_ramses_config_dir() / "ramses_addons_settings.json"
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge *override* into *base*, returning a new dict."""
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 def load_config() -> Dict[str, Any]:
@@ -56,8 +52,8 @@ def load_config() -> Dict[str, Any]:
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-            # Merge with defaults (in case new keys were added)
-            return {**DEFAULT_CONFIG, **config}
+            # Deep-merge so nested default keys are preserved
+            return _deep_merge(DEFAULT_CONFIG, config)
         except Exception as e:
             print(f"Warning: Failed to load Out config: {e}")
 
