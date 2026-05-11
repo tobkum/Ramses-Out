@@ -233,13 +233,13 @@ class TestPreviewCollector(unittest.TestCase):
         self.assertIn("SH010", shot_list)
 
     def test_empty_collection(self):
-        """Test collecting empty list."""
+        """Test collecting empty list — nothing to copy is a success."""
         items = []
 
         success, failed_files = self.collector.collect_files(items, str(self.dest_dir))
 
-        # Should fail with no items
-        self.assertFalse(success)
+        self.assertTrue(success)
+        self.assertEqual(failed_files, [])
 
     def tearDown(self):
         """Clean up temp directories."""
