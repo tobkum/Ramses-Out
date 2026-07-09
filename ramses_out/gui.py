@@ -29,6 +29,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QFont, QShortcut, QKeySequence
 
+# Apply upstream Ramses API patches before any module that imports the ramses
+# library (scanner/tracker below, and `from ramses import Ramses`).  __main__.py
+# does this too, but importing it here keeps the console_scripts entry point
+# (ramses_out.gui:main) correct on macOS.
+from . import monkeypatches  # noqa: F401
 from .stylesheet import STYLESHEET
 from .scanner import PreviewScanner
 from .tracker import UploadTracker

@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFileDialog,
 )
-from PySide6.QtCore import Qt
 
 from .stylesheet import STYLESHEET
 from .config import load_ramses_settings, save_ramses_settings

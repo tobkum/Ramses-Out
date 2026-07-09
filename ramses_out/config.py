@@ -1,7 +1,9 @@
 """Configuration management for Ramses Out."""
 
+import copy
 import json
 import os
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -41,18 +43,39 @@ def load_config() -> Dict[str, Any]:
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
-            # Deep-merge so nested default keys are preserved
-            return deep_merge(DEFAULT_CONFIG, config)
+            # Deep-merge so nested default keys are preserved. deep_copy the result
+            # because deep_merge only shallow-copies keys absent from the loaded
+            # config — without this, callers mutating config["review"][...] (e.g.
+            # the settings dialog) would corrupt the module-level DEFAULT_CONFIG.
+            return copy.deepcopy(deep_merge(DEFAULT_CONFIG, config))
         except Exception as e:
             print(f"Warning: Failed to load Out config: {e}")
 
-    # Create default config
+    # Create default config. Return a deep copy so the caller never mutates
+    # the module-level DEFAULT_CONFIG.
     save_config(DEFAULT_CONFIG)
-    return DEFAULT_CONFIG.copy()
+    return copy.deepcopy(DEFAULT_CONFIG)
+
+
+def _atomic_replace(src: str, dst: str):
+    """Replace dst with src atomically, retrying transient Windows locks.
+
+    Network shares and AV scanners can briefly hold a PermissionError on the
+    destination; retry a few times before giving up.
+    """
+    max_retries = 5
+    for i in range(max_retries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == max_retries - 1:
+                raise
+            time.sleep(0.1 * (i + 1))
 
 
 def save_config(config: Dict[str, Any]) -> bool:
-    """Save Out configuration to disk (Atomic)."""
+    """Save Out configuration to disk (Atomic with retry)."""
     try:
         config_path = get_config_path()
         dir_name = config_path.parent
@@ -63,7 +86,7 @@ def save_config(config: Dict[str, Any]) -> bool:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as tf:
                 json.dump(config, tf, indent=2)
-            os.replace(temp_path, str(config_path))
+            _atomic_replace(temp_path, str(config_path))
         except Exception as e:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -125,7 +148,7 @@ def save_ramses_settings(client_path: Optional[str] = None, client_port: Optiona
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as tf:
                 json.dump(existing, tf, indent=4)
-            os.replace(temp_path, str(config_path))
+            _atomic_replace(temp_path, str(config_path))
         except Exception as e:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
