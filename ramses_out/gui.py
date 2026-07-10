@@ -9,6 +9,7 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QDialog,
     QMainWindow,
@@ -402,6 +403,10 @@ class RamsesOutWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(60)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
+        # The table is display-only: without this, Qt's default edit triggers
+        # open a cell editor on double-click (fighting the play action below),
+        # and any edits would be silently discarded anyway.
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # Double-click a row to play the preview in the system default player
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         layout.addWidget(self.table)

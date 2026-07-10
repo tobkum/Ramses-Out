@@ -99,6 +99,15 @@ class TestStateColumnAndFilter(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_table_is_not_editable(self):
+        """Double-click must play the preview — never open a cell editor.
+        The table is display-only; edits would be silently discarded."""
+        from PySide6.QtWidgets import QAbstractItemView
+        self.assertEqual(
+            self.window.table.editTriggers(),
+            QAbstractItemView.EditTrigger.NoEditTriggers,
+        )
+
     def test_double_click_plays_preview(self):
         from unittest.mock import patch
         self.window._apply_filters()
