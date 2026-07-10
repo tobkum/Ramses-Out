@@ -75,6 +75,45 @@ class TestStateColumnAndFilter(unittest.TestCase):
         self.window.ok_filter.setChecked(False)
         self.assertEqual(self.window.table.rowCount(), 3)
 
+    def test_thumbnail_icon_on_shot_item(self):
+        """Previews with a thumbnail render it as the Shot item's icon."""
+        import tempfile, shutil
+        tmp = tempfile.mkdtemp()
+        try:
+            # A real (tiny) image file so QIcon can decode it
+            from PySide6.QtGui import QImage
+            thumb = os.path.join(tmp, "thumb.jpg")
+            img = QImage(8, 8, QImage.Format.Format_RGB32)
+            img.fill(0xFF808080)
+            img.save(thumb, "JPG")
+
+            self.window.all_previews[0].thumbnail_path = thumb
+            self.window._apply_filters()
+
+            table = self.window.table
+            row = next(r for r in range(table.rowCount()) if table.item(r, 1).text() == "SH010")
+            self.assertFalse(table.item(row, 1).icon().isNull())
+            # Rows without a thumbnail have no icon
+            other = next(r for r in range(table.rowCount()) if table.item(r, 1).text() == "SH020")
+            self.assertTrue(table.item(other, 1).icon().isNull())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_double_click_plays_preview(self):
+        from unittest.mock import patch
+        self.window._apply_filters()
+        target = self.window.filtered_previews[1]
+        with patch.object(self.window, "_open_file") as mock_open:
+            self.window._on_cell_double_clicked(1, 3)
+        mock_open.assert_called_once_with(target.file_path)
+
+    def test_double_click_on_checkbox_column_does_not_play(self):
+        from unittest.mock import patch
+        self.window._apply_filters()
+        with patch.object(self.window, "_open_file") as mock_open:
+            self.window._on_cell_double_clicked(0, 0)
+        mock_open.assert_not_called()
+
     def test_apply_db_states_fills_previews_from_status_map(self):
         self.window.status_map = {("SH030", "COMP"): ("OK", "#00aa00")}
         changed = self.window._apply_db_states(self.window.all_previews)

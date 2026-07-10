@@ -22,6 +22,7 @@ class PreviewItem:
     sent_date: Optional[str] = None  # YYYY-MM-DD format
     db_state: str = ""  # Pipeline state from the Ramses DB (e.g. "WIP", "OK")
     db_state_color: str = ""  # State color hex from the DB (e.g. "#00aa00")
+    thumbnail_path: Optional[str] = None  # Sibling still image (Ingest writes one per shot)
 
     @property
     def display_name(self) -> str:

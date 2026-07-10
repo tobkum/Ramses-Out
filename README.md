@@ -17,14 +17,26 @@ It also keeps track of what you've already sent — per file, with timestamps �
 ## Workflow
 
 1. Open Ramses Out. It connects to the Ramses daemon automatically and scans the current project.
-2. Use the filters (sequence, step, date) to narrow down what you're looking at.
-3. Select the shots you want to include in the package.
-4. Click **Collect to Folder**. Pick a destination (or use the default configured in Settings). The files are copied and a `shot_list.txt` manifest is written alongside them.
+2. Use the filters (sequence, step, date, **Only OK**) to narrow down what you're looking at.
+3. Select the shots you want to include in the package. **Double-click any row to play the preview** in your default video player.
+4. Click **Collect to Folder**. Pick a destination (or use the default configured in Settings; the picker starts at the project's export folder). The files are copied and a `shot_list.txt` manifest is written alongside them.
 5. Click **Mark as Sent** to record the delivery. Next time you open the tool, those shots will show a "Sent" date instead of "Ready".
 
 If you delivered the files another way and just need to update the tracking without copying anything, use **Mark as Sent** on its own.
 
 ---
+
+## The table
+
+| Column | Source |
+|--------|--------|
+| Thumbnail + Shot | Still image from the shot's `_preview` folder (Ramses-Ingest writes one per plate) |
+| Sequence / Step  | Ramses database |
+| **State**        | The shot's pipeline status (WIP, OK, …) straight from the Ramses database, in the client's state colour |
+| Format / Size    | The preview file on disk |
+| Status           | Delivery tracking (see below) |
+
+The **Only OK** filter hides everything whose database state isn't `OK` — use it to make sure a review package only contains approved shots.
 
 ## Status colours
 
@@ -80,5 +92,7 @@ Settings are stored in `~/.ramses/out_config.json`.
 
 ## Notes
 
-Sent status is tracked via small marker files (`.review_sent_*.txt`) written into each shot's preview folder. This means the tracking data lives with the project files and is shared across the team on a network drive without needing a database. The tool also maintains a personal history log at `~/.ramses/upload_history.log`.
+Sent status is tracked via small marker files (`.review_sent_*.txt`) written into each shot's preview folder. Each marker names the exact preview file it belongs to (a `File:` line), so marking one file as sent never affects sibling previews in the same folder; older markers without the field keep their folder-wide meaning. The tracking data lives with the project files and is shared across the team on a network drive without needing a database.
+
+The delivery history log lives inside the project at `<project>/_deliveries/upload_history.log`, so the whole team sees the same history. When no project is connected, a personal fallback log at `~/.ramses/upload_history.log` is used.
 

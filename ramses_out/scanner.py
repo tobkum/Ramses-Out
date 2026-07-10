@@ -139,10 +139,33 @@ class PreviewScanner:
                 format=file_path.suffix[1:].lower(),
                 status=status,
                 marker_path=marker_path,
-                sent_date=sent_date
+                sent_date=sent_date,
+                thumbnail_path=self._find_thumbnail(file_path),
             )
         except (OSError, ValueError):
             return None
+
+    @staticmethod
+    def _find_thumbnail(preview_file: Path) -> Optional[str]:
+        """Locate a still image to use as this preview's thumbnail.
+
+        Ramses-Ingest writes a ``PROJ_S_SHOT_STEP.jpg`` next to its proxies, so
+        an image with the same stem is preferred. Failing that, any image in
+        the folder works — a ``_preview`` folder belongs to exactly one
+        shot+step. Returns None when the folder has no still image (e.g.
+        Fusion-only previews).
+        """
+        for ext in (".jpg", ".jpeg", ".png"):
+            candidate = preview_file.with_suffix(ext)
+            if candidate.is_file():
+                return str(candidate)
+        try:
+            for entry in sorted(preview_file.parent.iterdir()):
+                if entry.is_file() and entry.suffix.lower() in (".jpg", ".jpeg", ".png"):
+                    return str(entry)
+        except (PermissionError, OSError):
+            pass
+        return None
 
     @staticmethod
     def _marker_target_file(marker_file: Path) -> Optional[str]:

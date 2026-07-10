@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QProgressDialog,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QColor, QFont, QShortcut, QKeySequence
+from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer
+from PySide6.QtGui import QColor, QFont, QIcon, QShortcut, QKeySequence
 
 # Apply upstream Ramses API patches before any module that imports the ramses
 # library (scanner/tracker below, and `from ramses import Ramses`).  __main__.py
@@ -397,9 +397,13 @@ class RamsesOutWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(6, 80)  # Size (MB)
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Status stretches
-        self.table.verticalHeader().setDefaultSectionSize(42)
+        # Thumbnails render as the Shot item's icon (no extra column needed)
+        self.table.setIconSize(QSize(96, 54))
+        self.table.verticalHeader().setDefaultSectionSize(60)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
+        # Double-click a row to play the preview in the system default player
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         layout.addWidget(self.table)
 
         # Selection info
@@ -505,20 +509,40 @@ class RamsesOutWindow(QMainWindow):
 
     def _open_folder(self, folder_path: str):
         """Open folder in file manager (cross-platform)."""
+        self._open_with_system(folder_path)
+
+    def _open_file(self, file_path: str):
+        """Open a file with the system default application (e.g. video player)."""
+        self._open_with_system(file_path)
+
+    @staticmethod
+    def _open_with_system(path: str):
+        """Hand a path to the OS default handler (cross-platform)."""
         import platform
         import subprocess
 
         try:
             system = platform.system()
             if system == "Windows":
-                os.startfile(folder_path)
+                os.startfile(path)
             elif system == "Darwin":  # macOS
-                subprocess.run(["open", folder_path])
+                subprocess.run(["open", path])
             else:  # Linux and others
-                subprocess.run(["xdg-open", folder_path])
+                subprocess.run(["xdg-open", path])
         except Exception as e:
             # If opening fails, just log it - not critical
-            print(f"Could not open folder: {e}")
+            print(f"Could not open path: {e}")
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        """Play the row's preview in the system default player.
+
+        Column 0 is the selection checkbox — double-clicks there are taken as
+        selection intent, not playback.
+        """
+        if column == 0:
+            return
+        if 0 <= row < len(self.filtered_previews):
+            self._open_file(self.filtered_previews[row].file_path)
 
     def _try_connect(self):
         """Start background connection attempt to Ramses daemon."""
@@ -703,7 +727,13 @@ class RamsesOutWindow(QMainWindow):
             self.table.setCellWidget(row, 0, checkbox_widget)
 
             # Data columns
-            self.table.setItem(row, 1, QTableWidgetItem(item.shot_id))
+            shot_item = QTableWidgetItem(item.shot_id)
+            if item.thumbnail_path:
+                # QIcon defers decoding until first paint, so populating a
+                # large table stays fast even with many thumbnails.
+                shot_item.setIcon(QIcon(item.thumbnail_path))
+            shot_item.setToolTip("Double-click to play")
+            self.table.setItem(row, 1, shot_item)
             self.table.setItem(row, 2, QTableWidgetItem(item.sequence_id))
             self.table.setItem(row, 3, QTableWidgetItem(item.step_id))
 

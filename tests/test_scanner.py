@@ -193,6 +193,29 @@ class TestPreviewScanner(unittest.TestCase):
         for p in (x for x in previews if x.shot_id == "SH020"):
             self.assertTrue(p.status.startswith("Sent"), f"{p.file_path}: {p.status}")
 
+    def test_thumbnail_same_stem_preferred(self):
+        """A still image with the preview's stem (Ingest convention) wins."""
+        folder = self.preview1_file.parent
+        (folder / "TEST_S_SH010_COMP.jpg").write_text("jpg")
+        (folder / "other_still.png").write_text("png")
+
+        previews = self.scanner.scan_project()
+        p = next(x for x in previews if x.shot_id == "SH010")
+        self.assertTrue(p.thumbnail_path.endswith("TEST_S_SH010_COMP.jpg"))
+
+    def test_thumbnail_falls_back_to_any_image_in_folder(self):
+        folder = self.preview1_file.parent
+        (folder / "some_still.png").write_text("png")
+
+        previews = self.scanner.scan_project()
+        p = next(x for x in previews if x.shot_id == "SH010")
+        self.assertTrue(p.thumbnail_path.endswith("some_still.png"))
+
+    def test_no_thumbnail_when_folder_has_no_still(self):
+        previews = self.scanner.scan_project()
+        p = next(x for x in previews if x.shot_id == "SH010")
+        self.assertIsNone(p.thumbnail_path)
+
     def test_filter_by_date_today(self):
         """Test filtering previews by today."""
         previews = self.scanner.scan_project()
