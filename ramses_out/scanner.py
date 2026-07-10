@@ -43,8 +43,8 @@ class PreviewScanner:
                         if not step_folder.is_dir():
                             continue
 
-                        # Check for _preview folder
-                        preview_folder = step_folder / "_preview"
+                        # Check for the preview folder (name from API constants)
+                        preview_folder = step_folder / FolderNames.preview
                         if not preview_folder.exists():
                             continue
 

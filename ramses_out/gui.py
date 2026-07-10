@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QProgressDialog,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QFont, QShortcut, QKeySequence
+from PySide6.QtGui import QColor, QFont, QShortcut, QKeySequence
 
 # Apply upstream Ramses API patches before any module that imports the ramses
 # library (scanner/tracker below, and `from ramses import Ramses`).  __main__.py
@@ -123,38 +123,47 @@ class ConnectionWorker(QThread):
 
 
 class ApiCacheThread(QThread):
-    """Fetches sequences, steps and shot→sequence map from the Ramses daemon.
+    """Fetches sequences, steps, shot→sequence map and per-shot statuses.
 
-    Runs in a background thread to avoid blocking the main UI thread with
-    N+1 socket calls (one per sequence to fetch its shots).
+    Uses TWO bulk daemon queries (getSequences + getShots with data) instead
+    of the previous one-call-per-sequence pattern, then resolves the DB status
+    for each (shot, step) pair currently visible in the scan results.
     """
 
-    finished = Signal(list, list, dict)  # api_sequences, api_steps, shot_seq_map
+    finished = Signal(list, list, dict, dict)  # api_sequences, api_steps, shot_seq_map, status_map
 
-    def __init__(self, project, parent=None):
+    def __init__(self, project, status_pairs=None, parent=None):
         super().__init__(parent)
         self.project = project
+        # (shot_id, step_id) pairs to resolve statuses for (from the scan)
+        self.status_pairs = list(status_pairs or [])
 
     def run(self):
         try:
-            from ramses import StepType
-            sequences = self.project.sequences()
-            api_sequences: list = []
-            shot_seq_map: dict = {}
-            for seq in sequences:
-                seq_name = seq.shortName()
-                if seq_name:
-                    api_sequences.append(seq_name)
-                for shot in seq.shots():
-                    shot_name = shot.shortName()
-                    if shot_name and seq_name:
-                        shot_seq_map[shot_name] = seq_name
-            steps = self.project.steps(StepType.SHOT_PRODUCTION)
-            api_steps = [s.shortName() for s in steps if s.shortName()]
-            self.finished.emit(api_sequences, api_steps, shot_seq_map)
+            from ramses import Ramses, StepType
+            from ramses.daemon_interface import RamDaemonInterface
+            from .api_cache import build_api_maps, fetch_status_map
+
+            daemon = RamDaemonInterface.instance()
+            sequences = daemon.getSequences(includeData=True)
+            shots = daemon.getShots(includeData=True)
+            steps = self.project.steps(StepType.SHOT_PRODUCTION, lazyLoading=False)
+            states = Ramses.instance().states()
+
+            maps = build_api_maps(sequences, shots, steps, states)
+            status_map = fetch_status_map(
+                daemon,
+                self.status_pairs,
+                maps["shot_uuid_map"],
+                maps["step_uuid_map"],
+                maps["state_map"],
+            )
+            self.finished.emit(
+                maps["api_sequences"], maps["api_steps"], maps["shot_seq_map"], status_map
+            )
         except Exception as e:
             logger.warning("Failed to cache API data: %s", e)
-            self.finished.emit([], [], {})
+            self.finished.emit([], [], {}, {})
 
 
 class RamsesOutWindow(QMainWindow):
@@ -183,10 +192,11 @@ class RamsesOutWindow(QMainWindow):
         # Load configuration
         self.config = load_config()
 
-        # Cache sequences, steps, and shot→sequence map from API (source of truth)
+        # Cache sequences, steps, shot→sequence map and statuses from API (source of truth)
         self.api_sequences: List[str] = []
         self.api_steps: List[str] = []
         self.shot_seq_map: dict = {}
+        self.status_map: dict = {}  # (shot_id, step_id) -> (state short name, color hex)
 
         # Data
         self.all_previews: List[PreviewItem] = []
@@ -226,26 +236,38 @@ class RamsesOutWindow(QMainWindow):
             return
         if self._api_cache_thread and self._api_cache_thread.isRunning():
             return
-        self._api_cache_thread = ApiCacheThread(self.current_project, parent=self)
+        pairs = {(p.shot_id, p.step_id) for p in self.all_previews}
+        self._api_cache_thread = ApiCacheThread(self.current_project, status_pairs=pairs, parent=self)
         self._api_cache_thread.finished.connect(self._on_api_cache_finished)
         self._api_cache_thread.start()
 
-    def _on_api_cache_finished(self, api_sequences: list, api_steps: list, shot_seq_map: dict):
+    def _apply_db_states(self, previews) -> bool:
+        """Fill db_state/db_state_color on previews from the cached status map."""
+        changed = False
+        for preview in previews:
+            state_info = self.status_map.get((preview.shot_id, preview.step_id))
+            if state_info and (preview.db_state, preview.db_state_color) != state_info:
+                preview.db_state, preview.db_state_color = state_info
+                changed = True
+        return changed
+
+    def _on_api_cache_finished(self, api_sequences: list, api_steps: list, shot_seq_map: dict, status_map: dict):
         """Store freshly fetched API data and refresh dependent UI."""
         self.api_sequences = api_sequences
         self.api_steps = api_steps
         self.shot_seq_map = shot_seq_map
+        self.status_map = status_map
 
-        # Resolve sequence IDs for any previews that were scanned before this
-        # cache result arrived.
-        sequences_changed = False
+        # Resolve sequence IDs and DB states for any previews that were
+        # scanned before this cache result arrived.
+        changed = self._apply_db_states(self.all_previews)
         for preview in self.all_previews:
             if not preview.sequence_id and preview.shot_id in self.shot_seq_map:
                 preview.sequence_id = self.shot_seq_map[preview.shot_id]
-                sequences_changed = True
+                changed = True
 
         self._populate_filter_dropdowns()
-        if sequences_changed:
+        if changed:
             self._apply_filters()
 
     def _populate_filter_dropdowns(self):
@@ -340,15 +362,23 @@ class RamsesOutWindow(QMainWindow):
         self.step_filter.currentTextChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.step_filter)
 
+        self.ok_filter = QCheckBox("Only OK")
+        self.ok_filter.setToolTip(
+            "Show only shots whose pipeline status in the Ramses database is OK\n"
+            "(approved) — prevents sending unapproved previews."
+        )
+        self.ok_filter.stateChanged.connect(self._apply_filters)
+        filter_layout.addWidget(self.ok_filter)
+
         filter_layout.addStretch()
 
         layout.addLayout(filter_layout)
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "", "Shot", "Sequence", "Step", "Format", "Size (MB)", "Status"
+            "", "Shot", "Sequence", "Step", "State", "Format", "Size (MB)", "Status"
         ])
         # Column sizing: Fixed widths for consistent layout
         header = self.table.horizontalHeader()
@@ -361,10 +391,12 @@ class RamsesOutWindow(QMainWindow):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(3, 90)  # Step (COMP, LAYOUT, etc.)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(4, 70)  # Format (mp4, mov) - wider for uppercase header
+        header.resizeSection(4, 70)  # State from DB (WIP, OK, ...)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(5, 80)  # Size (MB)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)  # Status stretches
+        header.resizeSection(5, 70)  # Format (mp4, mov) - wider for uppercase header
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(6, 80)  # Size (MB)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Status stretches
         self.table.verticalHeader().setDefaultSectionSize(42)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
@@ -592,7 +624,8 @@ class RamsesOutWindow(QMainWindow):
         """Handle scan completion."""
         self.all_previews = previews
 
-        # Resolve sequences using whatever API data is already cached.
+        # Resolve sequences and DB states using whatever API data is cached.
+        self._apply_db_states(self.all_previews)
         for preview in self.all_previews:
             if not preview.sequence_id and preview.shot_id in self.shot_seq_map:
                 preview.sequence_id = self.shot_seq_map[preview.shot_id]
@@ -641,6 +674,10 @@ class RamsesOutWindow(QMainWindow):
         if step != "All Steps":
             filtered = PreviewScanner.filter_by_step(filtered, step)
 
+        # Approved-only filter (DB state == OK)
+        if self.ok_filter.isChecked():
+            filtered = [i for i in filtered if (i.db_state or "").upper() == "OK"]
+
         self.filtered_previews = filtered
         self._populate_table()
 
@@ -669,8 +706,19 @@ class RamsesOutWindow(QMainWindow):
             self.table.setItem(row, 1, QTableWidgetItem(item.shot_id))
             self.table.setItem(row, 2, QTableWidgetItem(item.sequence_id))
             self.table.setItem(row, 3, QTableWidgetItem(item.step_id))
-            self.table.setItem(row, 4, QTableWidgetItem(item.format.upper()))
-            self.table.setItem(row, 5, QTableWidgetItem(f"{item.size_mb:.1f}"))
+
+            # Pipeline state from the Ramses DB, colored like the client
+            state_item = QTableWidgetItem(item.db_state or "—")
+            if item.db_state_color:
+                state_item.setForeground(QColor(item.db_state_color))
+            state_item.setToolTip(
+                "Pipeline status from the Ramses database" if item.db_state
+                else "No status in the Ramses database"
+            )
+            self.table.setItem(row, 4, state_item)
+
+            self.table.setItem(row, 5, QTableWidgetItem(item.format.upper()))
+            self.table.setItem(row, 6, QTableWidgetItem(f"{item.size_mb:.1f}"))
 
             # Status with color
             status_item = QTableWidgetItem(item.status)
@@ -683,7 +731,7 @@ class RamsesOutWindow(QMainWindow):
             else:
                 # Gray for already sent
                 status_item.setForeground(Qt.GlobalColor.gray)
-            self.table.setItem(row, 6, status_item)
+            self.table.setItem(row, 7, status_item)
 
         self._update_selection_label()
 
@@ -734,11 +782,20 @@ class RamsesOutWindow(QMainWindow):
             dest.mkdir(parents=True, exist_ok=True)
             dest = str(dest)
         else:
-            # Choose destination folder via dialog
+            # Choose destination folder via dialog; start at the project's
+            # export folder (06-EXPORT) when available instead of the Desktop.
+            start_dir = str(Path.home() / "Desktop")
+            if self.current_project:
+                try:
+                    export_path = self.current_project.exportPath()
+                    if export_path and Path(export_path).exists():
+                        start_dir = export_path
+                except Exception:
+                    pass
             dest = QFileDialog.getExistingDirectory(
                 self,
                 "Select Collection Folder",
-                str(Path.home() / "Desktop")
+                start_dir
             )
 
             if not dest:
