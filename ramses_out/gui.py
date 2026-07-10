@@ -166,7 +166,17 @@ class RamsesOutWindow(QMainWindow):
         self.setStyleSheet(STYLESHEET)
         self.resize(1000, 700)
 
-        # Initialize Ramses API (connection happens async below)
+        # Initialize Ramses API on the main thread before any background
+        # worker touches it: the upstream library uses an unsynchronised
+        # double-check-lock singleton pattern, so all three singletons must be
+        # fully constructed before concurrent access (same hardening as Hub).
+        try:
+            from ramses.ram_settings import RamSettings
+            from ramses.daemon_interface import RamDaemonInterface
+            RamSettings.instance()
+            RamDaemonInterface.instance()
+        except Exception as e:
+            logger.warning("Could not warm Ramses singletons: %s", e)
         self.ramses = Ramses.instance()
         self.current_project = None
 
@@ -511,6 +521,12 @@ class RamsesOutWindow(QMainWindow):
                 pid = self.current_project.shortName()
                 pname = self.current_project.name()
                 self.project_label.setText(f"{pid} - {pname}")
+                # Share the delivery history with the whole team by keeping it
+                # inside the project instead of the per-user home directory.
+                try:
+                    self.tracker.set_project_root(self.current_project.folderPath())
+                except Exception as e:
+                    logger.warning("Could not switch to project history log: %s", e)
             self._start_api_cache()  # populates dropdowns when done
 
             # Enable action buttons

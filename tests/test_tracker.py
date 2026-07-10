@@ -169,6 +169,59 @@ class TestUploadTracker(unittest.TestCase):
         # Should not have "Notes:" line if notes are empty
         self.assertNotIn("Notes:", marker_content)
 
+    def test_marker_contains_file_field(self):
+        """Markers must name the exact preview file they belong to."""
+        item = self.create_preview_item()
+        self.assertTrue(self.tracker.create_marker(item, "PKG", ""))
+
+        markers = list(self.preview_folder.glob(".review_sent_*.txt"))
+        self.assertEqual(len(markers), 1)
+        content = markers[0].read_text()
+        self.assertIn(f"File: {self.preview_file.name}", content)
+
+    def test_markers_for_sibling_files_do_not_collide(self):
+        """Two previews in one folder marked in the same second must produce
+        two distinct markers (previously the same-second filename collided,
+        and X.mp4 / X.mov share a stem)."""
+        sibling = self.preview_folder / "TEST_S_SH010_COMP.mov"
+        sibling.write_text("fake video")
+
+        item_a = self.create_preview_item()
+        item_b = self.create_preview_item()
+        item_b.file_path = str(sibling)
+        item_b.format = "mov"
+
+        self.assertTrue(self.tracker.mark_as_sent([item_a, item_b], "PKG"))
+
+        markers = list(self.preview_folder.glob(".review_sent_*.txt"))
+        self.assertEqual(len(markers), 2)
+        targets = {self.tracker.read_marker(str(m)).get("file") for m in markers}
+        self.assertEqual(targets, {Path(item_a.file_path).name, sibling.name})
+
+    def test_set_project_root_relocates_history_log(self):
+        """set_project_root points the log at <project>/_deliveries/ and the
+        directory is created lazily on the first write."""
+        project_root = Path(self.temp_dir) / "PROJ"
+        project_root.mkdir()
+
+        self.tracker.set_project_root(str(project_root))
+        expected = project_root / "_deliveries" / "upload_history.log"
+        self.assertEqual(self.tracker.history_log, expected)
+        self.assertFalse(expected.parent.exists())  # lazy — no dir until write
+
+        self.assertTrue(self.tracker.append_to_log([self.create_preview_item()], "PKG"))
+        self.assertTrue(expected.exists())
+        self.assertIn("SH010", expected.read_text())
+
+        # History queries follow the new log
+        self.assertEqual(len(self.tracker.get_history("SH010")), 1)
+
+    def test_set_project_root_empty_is_noop(self):
+        """An empty project root must not break the fallback log path."""
+        before = self.tracker.history_log
+        self.tracker.set_project_root("")
+        self.assertEqual(self.tracker.history_log, before)
+
     def test_history_log_permissions_error(self):
         """Test handling of permissions error on history log."""
         # Make history log read-only

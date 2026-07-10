@@ -124,7 +124,9 @@ class PreviewScanner:
             date_modified = datetime.fromtimestamp(stat.st_mtime)
 
             # Check for marker file and compare with preview modification time
-            marker_path, sent_date, status = self._check_marker(file_path.parent, date_modified)
+            marker_path, sent_date, status = self._check_marker(
+                file_path.parent, date_modified, file_path.name
+            )
 
             return PreviewItem(
                 shot_id=shot_id,
@@ -142,23 +144,51 @@ class PreviewScanner:
         except (OSError, ValueError):
             return None
 
-    def _check_marker(self, preview_folder: Path, preview_modified: datetime) -> tuple[Optional[str], Optional[str], str]:
-        """Check for review marker file in preview folder.
+    @staticmethod
+    def _marker_target_file(marker_file: Path) -> Optional[str]:
+        """Read the ``File:`` field from a marker, if present.
+
+        Returns the target preview filename, or None for legacy markers that
+        apply to the whole folder. Marker files are a handful of short lines,
+        so reading them during a scan is cheap.
+        """
+        try:
+            with open(marker_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("File: "):
+                        return line[len("File: "):].strip()
+        except (OSError, UnicodeDecodeError):
+            pass
+        return None
+
+    def _check_marker(
+        self, preview_folder: Path, preview_modified: datetime, preview_name: str
+    ) -> tuple[Optional[str], Optional[str], str]:
+        """Check for a review marker applying to *preview_name* in the folder.
+
+        Markers carrying a ``File:`` field only count for that specific file;
+        legacy markers without the field apply folder-wide. Filename matching
+        is case-insensitive (Windows/macOS filesystems).
 
         Args:
             preview_folder: Path to _preview folder
             preview_modified: Modification time of the preview file
+            preview_name: Filename of the preview being checked
 
         Returns:
             Tuple of (marker_path, sent_date, status)
         """
         marker_files = []
+        preview_name_folded = preview_name.lower()
         try:
-            # Look for .review_sent_YYYY-MM-DD[_HHMMSS].txt files and find the most recent one
+            # Look for .review_sent_YYYY-MM-DD[_HHMMSS[_stem]].txt files and find the most recent one
             for marker_file in preview_folder.glob('.review_sent_*.txt'):
                 # Flexible regex: matches YYYY-MM-DD and optionally any suffix before .txt
                 match = re.search(r'\.review_sent_(\d{4}-\d{2}-\d{2}).*\.txt', marker_file.name)
                 if match:
+                    target = self._marker_target_file(marker_file)
+                    if target is not None and target.lower() != preview_name_folded:
+                        continue  # Marker belongs to a sibling preview file
                     sent_date = match.group(1)
                     try:
                         marker_stat = marker_file.stat()

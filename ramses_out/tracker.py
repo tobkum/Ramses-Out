@@ -2,6 +2,7 @@
 
 import contextlib
 import os
+import re
 import tempfile
 import time
 from datetime import datetime
@@ -68,15 +69,32 @@ class UploadTracker:
         self._history_cache: Optional[Dict[str, List[dict]]] = None
 
     def _get_history_log_path(self) -> Path:
-        """Get path to upload history log.
+        """Get the fallback (per-user) upload history log path.
+
+        Used until :meth:`set_project_root` points the tracker at the shared
+        project log.
 
         Returns:
-            Path to .ramses/upload_history.log
+            Path to ~/.ramses/upload_history.log
         """
         home = Path.home()
         ramses_dir = home / ".ramses"
         ramses_dir.mkdir(exist_ok=True)
         return ramses_dir / "upload_history.log"
+
+    def set_project_root(self, project_root: str) -> None:
+        """Point the history log at the shared per-project location.
+
+        The log lives inside the project (``<project>/_deliveries/``) so the
+        whole team sees the same delivery history — a per-user home-dir log
+        can't provide that. The directory is created lazily on first write.
+        """
+        if not project_root:
+            return
+        new_log = Path(project_root) / "_deliveries" / "upload_history.log"
+        if new_log != self.history_log:
+            self.history_log = new_log
+            self._history_cache = None  # Cache belongs to the old log file
 
     def _get_username(self) -> str:
         """Get the current Ramses username, fallback to system username."""
@@ -106,11 +124,16 @@ class UploadTracker:
         preview_path = Path(preview_item.file_path)
         preview_folder = preview_path.parent
 
-        # Create marker filename with current date and timestamp to prevent overwrites
+        # Create marker filename with date, time, and the preview's stem so
+        # that (a) markers never overwrite each other within the same second
+        # and (b) each preview file in a shared _preview folder gets its own
+        # marker instead of one folder-wide marker flipping siblings to Sent.
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H%M%S")
-        marker_filename = f".review_sent_{date_str}_{time_str}.txt"
+        # Full name (not stem): X.mp4 and X.mov siblings must not collide.
+        safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", preview_path.name)[:64]
+        marker_filename = f".review_sent_{date_str}_{time_str}_{safe_name}.txt"
         marker_path = preview_folder / marker_filename
 
         # Get username
@@ -122,6 +145,9 @@ class UploadTracker:
             "Destination: Local Collection\n",
             f"User: {username}\n",
             f"Package: {package_name}\n",
+            # The scanner uses this to bind the marker to one preview file.
+            # Markers without a File line (legacy) apply to the whole folder.
+            f"File: {preview_path.name}\n",
         ]
         if notes:
             content_lines.append(f"Notes: {notes}\n")
@@ -195,6 +221,9 @@ class UploadTracker:
         safe_package = package_name.replace("|", "-").replace("\n", " ").replace("\r", " ")
 
         try:
+            # The project-shared log lives in <project>/_deliveries/, which may
+            # not exist yet; the lock file is created next to the log.
+            self.history_log.parent.mkdir(parents=True, exist_ok=True)
             with _log_lock(self.history_log):
                 with open(self.history_log, "a", encoding="utf-8") as f:
                     for item in preview_items:

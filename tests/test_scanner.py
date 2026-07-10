@@ -147,6 +147,52 @@ class TestPreviewScanner(unittest.TestCase):
         # Should use the newer marker's date
         self.assertIn(new_date, preview2.status)
 
+    def test_marker_with_file_field_binds_to_single_file(self):
+        """A marker carrying a File: field marks only that preview as Sent;
+        sibling previews in the same _preview folder stay Ready."""
+        preview_path = self.preview1_file.parent
+        sibling = preview_path / "TEST_S_SH010_COMP.mov"
+        sibling.write_text("fake video data")
+
+        # Both previews predate the marker (early today, same trick as setUp)
+        early = datetime.now().replace(hour=0, minute=0, second=1)
+        os.utime(self.preview1_file, (early.timestamp(), early.timestamp()))
+        os.utime(sibling, (early.timestamp(), early.timestamp()))
+
+        marker_date = datetime.now().strftime("%Y-%m-%d")
+        marker = preview_path / f".review_sent_{marker_date}_120000_TEST_S_SH010_COMP_mp4.txt"
+        marker.write_text(
+            f"Uploaded: {marker_date} 12:00:00\n"
+            "Destination: Local Collection\n"
+            "User: tester\n"
+            "Package: PKG\n"
+            f"File: {self.preview1_file.name}\n"
+        )
+        marker_time = datetime.now().replace(hour=0, minute=5, second=0)
+        os.utime(marker, (marker_time.timestamp(), marker_time.timestamp()))
+
+        previews = self.scanner.scan_project()
+        marked = next(p for p in previews if p.file_path.endswith(".mp4") and p.shot_id == "SH010")
+        unmarked = next(p for p in previews if p.file_path.endswith(".mov") and p.shot_id == "SH010")
+
+        self.assertTrue(marked.status.startswith("Sent"))
+        self.assertEqual(unmarked.status, "Ready")
+        self.assertIsNone(unmarked.marker_path)
+
+    def test_legacy_marker_applies_folder_wide(self):
+        """Markers without a File: field (pre-existing markers) keep the old
+        folder-wide semantics for backward compatibility."""
+        preview_path = self.preview2_file.parent
+        sibling = preview_path / "TEST_S_SH020_ANIM.mov"
+        sibling.write_text("fake video data")
+        early = datetime.now().replace(hour=0, minute=0, second=1)
+        os.utime(sibling, (early.timestamp(), early.timestamp()))
+
+        # setUp created a legacy marker (no File field, mtime 00:05) in this folder
+        previews = self.scanner.scan_project()
+        for p in (x for x in previews if x.shot_id == "SH020"):
+            self.assertTrue(p.status.startswith("Sent"), f"{p.file_path}: {p.status}")
+
     def test_filter_by_date_today(self):
         """Test filtering previews by today."""
         previews = self.scanner.scan_project()
