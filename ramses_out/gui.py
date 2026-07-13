@@ -350,16 +350,22 @@ class RamsesOutWindow(QMainWindow):
 
         self.date_filter = QComboBox()
         self.date_filter.addItems(["All", "Today", "This Week", "This Month"])
+        self.date_filter.setToolTip("Filter by when the preview file was last modified")
         self.date_filter.currentTextChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.date_filter)
 
         self.seq_filter = QComboBox()
         self.seq_filter.addItem("All Sequences")
+        self.seq_filter.setToolTip("Filter by sequence (from the Ramses database)")
         self.seq_filter.currentTextChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.seq_filter)
 
         self.step_filter = QComboBox()
         self.step_filter.addItem("All Steps")
+        self.step_filter.setToolTip(
+            "Filter by pipeline step the preview was rendered from\n"
+            "(e.g. PLATE previews from Ingest, COMP previews from Fusion)"
+        )
         self.step_filter.currentTextChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.step_filter)
 
@@ -422,10 +428,14 @@ class RamsesOutWindow(QMainWindow):
 
         # Secondary actions on left
         settings_btn = QPushButton("Settings")
+        settings_btn.setToolTip(
+            "Default collection path, Ramses client path and daemon port"
+        )
         settings_btn.clicked.connect(self._show_settings)
         button_layout.addWidget(settings_btn)
 
         refresh_btn = QPushButton("Refresh")
+        refresh_btn.setToolTip("Rescan the project's preview folders (F5)")
         refresh_btn.clicked.connect(self._scan_project)
         button_layout.addWidget(refresh_btn)
 
@@ -433,11 +443,20 @@ class RamsesOutWindow(QMainWindow):
 
         # Primary actions on right (matches Ramses-Ingest pattern)
         self.mark_sent_btn = QPushButton("Mark as Sent")
+        self.mark_sent_btn.setToolTip(
+            "Record the selected previews as delivered without copying anything.\n"
+            "Tracking is shared with the team via marker files in each shot's\n"
+            "_preview folder and the project delivery log."
+        )
         self.mark_sent_btn.clicked.connect(self._mark_as_sent)
         self.mark_sent_btn.setEnabled(False)
         button_layout.addWidget(self.mark_sent_btn)
 
         self.collect_btn = QPushButton("Collect to Folder")
+        self.collect_btn.setToolTip(
+            "Copy the selected previews to a delivery folder and write a\n"
+            "shot_list.txt manifest alongside them."
+        )
         self.collect_btn.setObjectName("primaryButton")
         self.collect_btn.clicked.connect(self._collect_to_folder)
         self.collect_btn.setEnabled(False)
@@ -760,12 +779,20 @@ class RamsesOutWindow(QMainWindow):
             if "Updated" in item.status:
                 # Orange/yellow for updated previews that need re-upload
                 status_item.setForeground(Qt.GlobalColor.yellow)
+                status_item.setToolTip(
+                    "Sent before, but a newer preview has been published "
+                    "since — needs re-sending"
+                )
             elif item.is_ready:
                 # Green for new previews
                 status_item.setForeground(Qt.GlobalColor.green)
+                status_item.setToolTip("Published preview, not yet sent")
             else:
                 # Gray for already sent
                 status_item.setForeground(Qt.GlobalColor.gray)
+                status_item.setToolTip(
+                    "Already included in a previous delivery"
+                )
             self.table.setItem(row, 7, status_item)
 
         self._update_selection_label()
