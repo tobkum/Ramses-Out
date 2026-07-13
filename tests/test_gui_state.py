@@ -18,14 +18,14 @@ except ImportError:
 from ramses_out.models import PreviewItem
 
 
-def _preview(shot, step="COMP", db_state="", db_color=""):
+def _preview(shot, step="COMP", db_state="", db_color="", file_size=1024):
     return PreviewItem(
         shot_id=shot,
         sequence_id="SEQ01",
         step_id=step,
         project_id="TEST",
         file_path=f"/proj/{shot}.mp4",
-        file_size=1024,
+        file_size=file_size,
         date_modified=datetime.now(),
         format="mp4",
         status="Ready",
@@ -131,6 +131,94 @@ class TestStateColumnAndFilter(unittest.TestCase):
         self.assertEqual(sh030.db_state, "OK")
         # Second application is a no-op
         self.assertFalse(self.window._apply_db_states(self.window.all_previews))
+
+
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestSortingAndSelection(unittest.TestCase):
+    """Sorting-safe checkboxes and row mapping (same pattern as Ramses-Ingest:
+    checkable items, not cell widgets — widgets don't move when Qt sorts)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from PySide6.QtCore import Qt
+        self.Qt = Qt
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+        self.window.all_previews = [
+            _preview("SH010", file_size=100 * 1024 * 1024),  # 100.0 MB
+            _preview("SH020", file_size=int(9.5 * 1024 * 1024)),  # 9.5 MB
+            _preview("SH030", file_size=1024),
+        ]
+        self.window._apply_filters()
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def _row_of(self, shot):
+        table = self.window.table
+        return next(
+            r for r in range(table.rowCount()) if table.item(r, 1).text() == shot
+        )
+
+    def _set_checked(self, shot, checked):
+        state = self.Qt.CheckState.Checked if checked else self.Qt.CheckState.Unchecked
+        self.window.table.item(self._row_of(shot), 0).setCheckState(state)
+
+    def test_sorting_is_enabled(self):
+        self.assertTrue(self.window.table.isSortingEnabled())
+
+    def test_checkboxes_survive_sorting(self):
+        """Check one row, sort descending — the check must follow the shot."""
+        self.window._set_all_checked(False)
+        self._set_checked("SH010", True)
+
+        self.window.table.sortItems(1, self.Qt.SortOrder.DescendingOrder)
+
+        # SH010 is now the last row, and still the only checked one
+        checked = {
+            self.window.table.item(r, 1).text()
+            for r in range(self.window.table.rowCount())
+            if self.window.table.item(r, 0).checkState() == self.Qt.CheckState.Checked
+        }
+        self.assertEqual(checked, {"SH010"})
+
+        selected = self.window._get_selected_items()
+        self.assertEqual([p.shot_id for p in selected], ["SH010"])
+
+    def test_double_click_after_sorting_plays_correct_file(self):
+        from unittest.mock import patch
+        self.window.table.sortItems(1, self.Qt.SortOrder.DescendingOrder)
+        row = self._row_of("SH020")
+        with patch.object(self.window, "_open_file") as mock_open:
+            self.window._on_cell_double_clicked(row, 3)
+        mock_open.assert_called_once_with("/proj/SH020.mp4")
+
+    def test_size_column_sorts_numerically(self):
+        """9.5 must sort below 100 (lexical text would put '100' first)."""
+        self.window.table.sortItems(6, self.Qt.SortOrder.AscendingOrder)
+        table = self.window.table
+        sizes = [table.item(r, 6).data(self.Qt.ItemDataRole.DisplayRole)
+                 for r in range(table.rowCount())]
+        self.assertEqual(sizes, sorted(sizes))
+        # Largest file (SH010, 100 MB) ends up last
+        self.assertEqual(table.item(table.rowCount() - 1, 1).text(), "SH010")
+
+    def test_select_all_and_toggle(self):
+        self.window._select_all()
+        self.assertEqual(len(self.window._get_selected_items()), 3)
+
+        self.window._deselect_all()
+        self.assertEqual(len(self.window._get_selected_items()), 0)
+
+        self.window.table.setCurrentCell(self._row_of("SH020"), 1)
+        self.window._toggle_selected_row()
+        self.assertEqual(
+            [p.shot_id for p in self.window._get_selected_items()], ["SH020"]
+        )
 
 
 if __name__ == "__main__":

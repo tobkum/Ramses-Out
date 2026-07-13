@@ -202,6 +202,7 @@ class RamsesOutWindow(QMainWindow):
         # Data
         self.all_previews: List[PreviewItem] = []
         self.filtered_previews: List[PreviewItem] = []
+        self._previews_by_path: dict = {}
         self.scanner = None
         self.tracker = UploadTracker()
         self.collector = PreviewCollector()
@@ -415,6 +416,11 @@ class RamsesOutWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # Double-click a row to play the preview in the system default player
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+        # Sortable columns. Checkboxes are checkable ITEMS (not cell widgets)
+        # so they move with their rows when sorting; each row's item carries
+        # the preview's file path in UserRole to map back to the data.
+        self.table.setSortingEnabled(True)
+        self.table.itemChanged.connect(self._on_table_item_changed)
         layout.addWidget(self.table)
 
         # Selection info
@@ -485,36 +491,37 @@ class RamsesOutWindow(QMainWindow):
         toggle_shortcut = QShortcut(QKeySequence("Space"), self)
         toggle_shortcut.activated.connect(self._toggle_selected_row)
 
+    def _set_all_checked(self, checked: bool):
+        """Check or uncheck every row (single selection update at the end)."""
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self.table.blockSignals(True)
+        for row in range(self.table.rowCount()):
+            check_item = self.table.item(row, 0)
+            if check_item:
+                check_item.setCheckState(state)
+        self.table.blockSignals(False)
+        self._update_selection_label()
+
     def _select_all(self):
         """Select all checkboxes."""
-        for row in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox:
-                    checkbox.setChecked(True)
-        self._update_selection_label()
+        self._set_all_checked(True)
 
     def _deselect_all(self):
         """Deselect all checkboxes."""
-        for row in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox:
-                    checkbox.setChecked(False)
-        self._update_selection_label()
+        self._set_all_checked(False)
 
     def _toggle_selected_row(self):
         """Toggle checkbox of currently selected row."""
         current_row = self.table.currentRow()
         if current_row >= 0:
-            checkbox_widget = self.table.cellWidget(current_row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox:
-                    checkbox.setChecked(not checkbox.isChecked())
-                    self._update_selection_label()
+            check_item = self.table.item(current_row, 0)
+            if check_item:
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if check_item.checkState() == Qt.CheckState.Checked
+                    else Qt.CheckState.Checked
+                )
+                check_item.setCheckState(new_state)
 
     def _show_settings(self):
         """Show settings dialog (non-modal so background scans keep running)."""
@@ -565,8 +572,9 @@ class RamsesOutWindow(QMainWindow):
         """
         if column == 0:
             return
-        if 0 <= row < len(self.filtered_previews):
-            self._open_file(self.filtered_previews[row].file_path)
+        preview = self._row_preview(row)
+        if preview:
+            self._open_file(preview.file_path)
 
     def _try_connect(self):
         """Start background connection attempt to Ramses daemon."""
@@ -730,25 +738,34 @@ class RamsesOutWindow(QMainWindow):
         self._populate_table()
 
     def _populate_table(self):
-        """Populate table with filtered previews."""
+        """Populate table with filtered previews.
+
+        Sorting is suspended while rows are inserted (Qt re-sorts on every
+        setItem otherwise) and itemChanged signals are blocked so checkbox
+        initialization doesn't spam selection updates.
+        """
+        self.table.setSortingEnabled(False)
+        self.table.blockSignals(True)
         self.table.setRowCount(0)
+        self._previews_by_path = {p.file_path: p for p in self.filtered_previews}
 
         for item in self.filtered_previews:
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            # Checkbox
-            checkbox = QCheckBox()
-            if item.is_ready:
-                checkbox.setChecked(True)
-            checkbox.stateChanged.connect(self._update_selection_label)
-            checkbox_widget = QWidget()
-            checkbox_widget.setStyleSheet("background: transparent;")
-            checkbox_layout = QHBoxLayout(checkbox_widget)
-            checkbox_layout.addWidget(checkbox)
-            checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            checkbox_layout.setContentsMargins(0, 0, 0, 0)
-            self.table.setCellWidget(row, 0, checkbox_widget)
+            # Checkbox as a checkable item: survives sorting, unlike a widget
+            check_item = QTableWidgetItem()
+            check_item.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+            )
+            check_item.setCheckState(
+                Qt.CheckState.Checked if item.is_ready else Qt.CheckState.Unchecked
+            )
+            # The row's identity: maps back to the PreviewItem after sorting
+            check_item.setData(Qt.ItemDataRole.UserRole, item.file_path)
+            self.table.setItem(row, 0, check_item)
 
             # Data columns
             shot_item = QTableWidgetItem(item.shot_id)
@@ -772,7 +789,12 @@ class RamsesOutWindow(QMainWindow):
             self.table.setItem(row, 4, state_item)
 
             self.table.setItem(row, 5, QTableWidgetItem(item.format.upper()))
-            self.table.setItem(row, 6, QTableWidgetItem(f"{item.size_mb:.1f}"))
+            # Numeric DisplayRole so the Size column sorts numerically
+            size_item = QTableWidgetItem()
+            size_item.setData(
+                Qt.ItemDataRole.DisplayRole, round(item.size_mb, 1)
+            )
+            self.table.setItem(row, 6, size_item)
 
             # Status with color
             status_item = QTableWidgetItem(item.status)
@@ -795,17 +817,33 @@ class RamsesOutWindow(QMainWindow):
                 )
             self.table.setItem(row, 7, status_item)
 
+        self.table.blockSignals(False)
+        self.table.setSortingEnabled(True)
         self._update_selection_label()
+
+    def _row_preview(self, row: int):
+        """Maps a (possibly sorted) table row back to its PreviewItem."""
+        check_item = self.table.item(row, 0)
+        if not check_item:
+            return None
+        return self._previews_by_path.get(
+            check_item.data(Qt.ItemDataRole.UserRole)
+        )
+
+    def _on_table_item_changed(self, item: QTableWidgetItem):
+        """React to checkbox toggles (column 0)."""
+        if item.column() == 0:
+            self._update_selection_label()
 
     def _get_selected_items(self) -> List[PreviewItem]:
         """Get currently selected preview items."""
         selected = []
         for row in range(self.table.rowCount()):
-            checkbox_widget = self.table.cellWidget(row, 0)
-            if checkbox_widget:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox and checkbox.isChecked():
-                    selected.append(self.filtered_previews[row])
+            check_item = self.table.item(row, 0)
+            if check_item and check_item.checkState() == Qt.CheckState.Checked:
+                preview = self._row_preview(row)
+                if preview:
+                    selected.append(preview)
         return selected
 
     def _update_selection_label(self):

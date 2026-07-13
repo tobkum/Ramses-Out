@@ -38,6 +38,8 @@ If you delivered the files another way and just need to update the tracking with
 
 The **Only OK** filter hides everything whose database state isn't `OK` — use it to make sure a review package only contains approved shots.
 
+All columns are sortable (click a header) — checkboxes and statuses stay with their rows, and the Size column sorts numerically.
+
 ## Status colours
 
 | Colour | Meaning |
