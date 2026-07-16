@@ -131,7 +131,12 @@ class ApiCacheThread(QThread):
     for each (shot, step) pair currently visible in the scan results.
     """
 
-    finished = Signal(list, list, dict, dict)  # api_sequences, api_steps, shot_seq_map, status_map
+    # status_map is keyed by (shot_id, step_id) TUPLES. A dict-typed signal arg
+    # is marshalled to a C++ QVariantMap across the thread boundary, which only
+    # allows string keys — the tuple-keyed dict silently arrives EMPTY (Shiboken
+    # "Cannot copy-convert dict to C++"), blanking every DB State. Typing it as
+    # `object` passes the Python dict through untouched.
+    finished = Signal(list, list, object, object)  # api_sequences, api_steps, shot_seq_map, status_map
 
     def __init__(self, project, status_pairs=None, parent=None):
         super().__init__(parent)
@@ -217,6 +222,10 @@ class RamsesOutWindow(QMainWindow):
         self.collection_thread: Optional[CollectionThread] = None
         self._connection_worker: Optional[ConnectionWorker] = None
         self._api_cache_thread: Optional[ApiCacheThread] = None
+        # Set when _start_api_cache is called while a fetch is already running,
+        # so the later call (typically the post-scan one carrying the real
+        # status pairs) re-runs instead of being silently dropped.
+        self._api_cache_pending: bool = False
 
         # Non-modal settings dialog reference (prevents GC and duplicate opens)
         self._settings_dialog = None
@@ -242,7 +251,13 @@ class RamsesOutWindow(QMainWindow):
         if not self.current_project:
             return
         if self._api_cache_thread and self._api_cache_thread.isRunning():
+            # A fetch is already running — often the empty-pairs run kicked off
+            # at connection time before the first scan. Remember to run again
+            # with the current pairs when it finishes, so the post-scan status
+            # resolution isn't dropped (which left every DB State blank).
+            self._api_cache_pending = True
             return
+        self._api_cache_pending = False
         pairs = {(p.shot_id, p.step_id) for p in self.all_previews}
         self._api_cache_thread = ApiCacheThread(self.current_project, status_pairs=pairs, parent=self)
         self._api_cache_thread.finished.connect(self._on_api_cache_finished)
@@ -276,6 +291,13 @@ class RamsesOutWindow(QMainWindow):
         self._populate_filter_dropdowns()
         if changed:
             self._apply_filters()
+
+        # If a fetch was requested while this one was running (e.g. the scan
+        # finished mid-fetch and needs statuses for its pairs), run it now with
+        # the current previews.
+        if self._api_cache_pending:
+            self._api_cache_pending = False
+            self._start_api_cache()
 
     def _populate_filter_dropdowns(self):
         """Populate filter dropdowns from API data (source of truth)."""

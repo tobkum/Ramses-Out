@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -220,6 +221,50 @@ class TestSortingAndSelection(unittest.TestCase):
         self.assertEqual(
             [p.shot_id for p in self.window._get_selected_items()], ["SH020"]
         )
+
+
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestApiCachePendingRerun(unittest.TestCase):
+    """The post-scan status fetch must not be dropped when it collides with the
+    empty-pairs fetch started at connection time (which left every State blank)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+        self.window.current_project = MagicMock()  # non-None so _start_api_cache proceeds
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def test_start_while_running_sets_pending(self):
+        running = MagicMock()
+        running.isRunning.return_value = True
+        self.window._api_cache_thread = running
+        self.window._api_cache_pending = False
+
+        self.window._start_api_cache()  # collides with the running fetch
+
+        self.assertTrue(self.window._api_cache_pending)
+        # The running thread was not replaced.
+        self.assertIs(self.window._api_cache_thread, running)
+
+    def test_finish_reruns_when_pending(self):
+        self.window._api_cache_pending = True
+        with patch.object(self.window, "_start_api_cache") as mock_start:
+            self.window._on_api_cache_finished([], [], {}, {})
+        self.assertFalse(self.window._api_cache_pending)
+        mock_start.assert_called_once()
+
+    def test_finish_does_not_rerun_when_not_pending(self):
+        self.window._api_cache_pending = False
+        with patch.object(self.window, "_start_api_cache") as mock_start:
+            self.window._on_api_cache_finished([], [], {}, {})
+        mock_start.assert_not_called()
 
 
 if __name__ == "__main__":
