@@ -172,6 +172,54 @@ class ApiCacheThread(QThread):
             self.finished.emit([], [], {}, {})
 
 
+class StatusAdvanceThread(QThread):
+    """Advances the DB state of (shot, step) pairs to a target state.
+
+    Used to move shots from the ready state to the sent state (e.g. RFR → CHK)
+    after their previews have been sent. Runs off the UI thread because it makes
+    several blocking daemon calls.
+    """
+
+    finished = Signal(int, int)  # ok_count, fail_count
+
+    def __init__(self, project, pairs, target_state_short, parent=None):
+        super().__init__(parent)
+        self.project = project
+        self.pairs = list(pairs)
+        self.target_state_short = target_state_short
+
+    def run(self):
+        try:
+            from ramses import Ramses, StepType
+            from ramses.daemon_interface import RamDaemonInterface
+            from .api_cache import build_api_maps, find_state, advance_statuses
+
+            daemon = RamDaemonInterface.instance()
+            sequences = daemon.getSequences(includeData=True)
+            shots = daemon.getShots(includeData=True)
+            steps = self.project.steps(StepType.SHOT_PRODUCTION, lazyLoading=False)
+            states = Ramses.instance().states()
+
+            maps = build_api_maps(sequences, shots, steps, states)
+            target = find_state(states, self.target_state_short)
+            if target is None:
+                logger.warning(
+                    "Target state %r not found; no status advanced.",
+                    self.target_state_short,
+                )
+                self.finished.emit(0, len(self.pairs))
+                return
+
+            ok, fail = advance_statuses(
+                daemon, self.pairs, target,
+                maps["shot_uuid_map"], maps["step_uuid_map"],
+            )
+            self.finished.emit(ok, fail)
+        except Exception as e:
+            logger.warning("Failed to advance statuses: %s", e)
+            self.finished.emit(0, len(self.pairs))
+
+
 class RamsesOutWindow(QMainWindow):
     """Main window for Ramses Out."""
 
@@ -1060,20 +1108,72 @@ class RamsesOutWindow(QMainWindow):
         # Mark as sent
         success = self.tracker.mark_as_sent(selected, package_name)
 
-        if success:
-            QMessageBox.information(
-                self,
-                "Marked as Sent",
-                f"Successfully marked {len(selected)} previews as sent."
-            )
-            # Refresh to update status
-            self._scan_project()
-        else:
+        if not success:
             QMessageBox.critical(
                 self,
                 "Mark Failed",
                 "Failed to mark some previews. Check file permissions."
             )
+            return
+
+        # Offer to advance the shots that were ready-for-review to the sent
+        # state (e.g. RFR → CHK). Only shots currently in the ready state are
+        # candidates; the rest are just marked sent.
+        candidates = [
+            i for i in selected
+            if (i.db_state or "").upper() == self._ready_state
+        ]
+        n_sent = len(selected)
+        if self._sent_state and candidates and self._confirm_status_advance(n_sent, candidates):
+            self._start_status_advance(candidates)
+        else:
+            QMessageBox.information(
+                self,
+                "Marked as Sent",
+                f"Successfully marked {n_sent} preview{'s' if n_sent != 1 else ''} as sent."
+            )
+            self._scan_project()
+
+    def _confirm_status_advance(self, n_sent: int, candidates) -> bool:
+        """Ask whether to move the ready-state shots to the sent state.
+
+        Combines the send confirmation with the offer so the artist sees a
+        single dialog. Defaults to No so the DB is never changed by accident.
+        """
+        n = len(candidates)
+        reply = QMessageBox.question(
+            self,
+            "Marked as Sent",
+            f"Marked {n_sent} preview{'s' if n_sent != 1 else ''} as sent.\n\n"
+            f"Also set {n} shot{'s' if n != 1 else ''} from "
+            f"{self._ready_state} to {self._sent_state} in the Ramses database?\n"
+            "(Do this once they've been uploaded to your review portal.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _start_status_advance(self, candidates):
+        """Launch the background writer that advances the shots to the sent state."""
+        pairs = [(i.shot_id, i.step_id) for i in candidates]
+        self._advance_thread = StatusAdvanceThread(
+            self.current_project, pairs, self._sent_state, parent=self
+        )
+        self._advance_thread.finished.connect(self._on_status_advance_finished)
+        self._advance_thread.start()
+
+    def _on_status_advance_finished(self, ok: int, fail: int):
+        """Report the status-advance result and refresh the table."""
+        if fail:
+            QMessageBox.warning(
+                self,
+                "Status Update",
+                f"Set {ok} shot(s) to {self._sent_state}; {fail} could not be "
+                "updated (see the console for details).",
+            )
+        # On full success the refreshed table showing the new state is
+        # confirmation enough — no extra dialog.
+        self._scan_project()
 
 
 def main():
