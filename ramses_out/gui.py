@@ -193,6 +193,11 @@ class RamsesOutWindow(QMainWindow):
         # Load configuration
         self.config = load_config()
 
+        # Review states (DB short names), configurable — see DEFAULT_CONFIG.
+        review_cfg = self.config.get("review", {})
+        self._ready_state = str(review_cfg.get("ready_state", "RFR")).upper()
+        self._sent_state = str(review_cfg.get("sent_state", "CHK")).upper()
+
         # Cache sequences, steps, shot→sequence map and statuses from API (source of truth)
         self.api_sequences: List[str] = []
         self.api_steps: List[str] = []
@@ -370,13 +375,14 @@ class RamsesOutWindow(QMainWindow):
         self.step_filter.currentTextChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.step_filter)
 
-        self.ok_filter = QCheckBox("Only OK")
-        self.ok_filter.setToolTip(
-            "Show only shots whose pipeline status in the Ramses database is OK\n"
-            "(approved) — prevents sending unapproved previews."
+        self.ready_filter = QCheckBox(f"Only {self._ready_state}")
+        self.ready_filter.setToolTip(
+            f"Show only shots whose pipeline status in the Ramses database is "
+            f"{self._ready_state}\n(ready for review) — the state a preview is set "
+            "to when it's cleared to go out to the client."
         )
-        self.ok_filter.stateChanged.connect(self._apply_filters)
-        filter_layout.addWidget(self.ok_filter)
+        self.ready_filter.stateChanged.connect(self._apply_filters)
+        filter_layout.addWidget(self.ready_filter)
 
         filter_layout.addStretch()
 
@@ -730,9 +736,9 @@ class RamsesOutWindow(QMainWindow):
         if step != "All Steps":
             filtered = PreviewScanner.filter_by_step(filtered, step)
 
-        # Approved-only filter (DB state == OK)
-        if self.ok_filter.isChecked():
-            filtered = [i for i in filtered if (i.db_state or "").upper() == "OK"]
+        # Ready-for-review filter (DB state == configured ready_state, e.g. RFR)
+        if self.ready_filter.isChecked():
+            filtered = [i for i in filtered if (i.db_state or "").upper() == self._ready_state]
 
         self.filtered_previews = filtered
         self._populate_table()
