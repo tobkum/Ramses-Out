@@ -131,7 +131,12 @@ class ApiCacheThread(QThread):
     for each (shot, step) pair currently visible in the scan results.
     """
 
-    finished = Signal(list, list, dict, dict)  # api_sequences, api_steps, shot_seq_map, status_map
+    # status_map is keyed by (shot_id, step_id) TUPLES. A dict-typed signal arg
+    # is marshalled to a C++ QVariantMap across the thread boundary, which only
+    # allows string keys — the tuple-keyed dict silently arrives EMPTY (Shiboken
+    # "Cannot copy-convert dict to C++"), blanking every DB State. Typing it as
+    # `object` passes the Python dict through untouched.
+    finished = Signal(list, list, object, object)  # api_sequences, api_steps, shot_seq_map, status_map
 
     def __init__(self, project, status_pairs=None, parent=None):
         super().__init__(parent)
@@ -167,6 +172,54 @@ class ApiCacheThread(QThread):
             self.finished.emit([], [], {}, {})
 
 
+class StatusAdvanceThread(QThread):
+    """Advances the DB state of (shot, step) pairs to a target state.
+
+    Used to move shots from the ready state to the sent state (e.g. RFR → CHK)
+    after their previews have been sent. Runs off the UI thread because it makes
+    several blocking daemon calls.
+    """
+
+    finished = Signal(int, int)  # ok_count, fail_count
+
+    def __init__(self, project, pairs, target_state_short, parent=None):
+        super().__init__(parent)
+        self.project = project
+        self.pairs = list(pairs)
+        self.target_state_short = target_state_short
+
+    def run(self):
+        try:
+            from ramses import Ramses, StepType
+            from ramses.daemon_interface import RamDaemonInterface
+            from .api_cache import build_api_maps, find_state, advance_statuses
+
+            daemon = RamDaemonInterface.instance()
+            sequences = daemon.getSequences(includeData=True)
+            shots = daemon.getShots(includeData=True)
+            steps = self.project.steps(StepType.SHOT_PRODUCTION, lazyLoading=False)
+            states = Ramses.instance().states()
+
+            maps = build_api_maps(sequences, shots, steps, states)
+            target = find_state(states, self.target_state_short)
+            if target is None:
+                logger.warning(
+                    "Target state %r not found; no status advanced.",
+                    self.target_state_short,
+                )
+                self.finished.emit(0, len(self.pairs))
+                return
+
+            ok, fail = advance_statuses(
+                daemon, self.pairs, target,
+                maps["shot_uuid_map"], maps["step_uuid_map"],
+            )
+            self.finished.emit(ok, fail)
+        except Exception as e:
+            logger.warning("Failed to advance statuses: %s", e)
+            self.finished.emit(0, len(self.pairs))
+
+
 class RamsesOutWindow(QMainWindow):
     """Main window for Ramses Out."""
 
@@ -193,6 +246,11 @@ class RamsesOutWindow(QMainWindow):
         # Load configuration
         self.config = load_config()
 
+        # Review states (DB short names), configurable — see DEFAULT_CONFIG.
+        review_cfg = self.config.get("review", {})
+        self._ready_state = str(review_cfg.get("ready_state", "RFR")).upper()
+        self._sent_state = str(review_cfg.get("sent_state", "CHK")).upper()
+
         # Cache sequences, steps, shot→sequence map and statuses from API (source of truth)
         self.api_sequences: List[str] = []
         self.api_steps: List[str] = []
@@ -212,6 +270,10 @@ class RamsesOutWindow(QMainWindow):
         self.collection_thread: Optional[CollectionThread] = None
         self._connection_worker: Optional[ConnectionWorker] = None
         self._api_cache_thread: Optional[ApiCacheThread] = None
+        # Set when _start_api_cache is called while a fetch is already running,
+        # so the later call (typically the post-scan one carrying the real
+        # status pairs) re-runs instead of being silently dropped.
+        self._api_cache_pending: bool = False
 
         # Non-modal settings dialog reference (prevents GC and duplicate opens)
         self._settings_dialog = None
@@ -237,7 +299,13 @@ class RamsesOutWindow(QMainWindow):
         if not self.current_project:
             return
         if self._api_cache_thread and self._api_cache_thread.isRunning():
+            # A fetch is already running — often the empty-pairs run kicked off
+            # at connection time before the first scan. Remember to run again
+            # with the current pairs when it finishes, so the post-scan status
+            # resolution isn't dropped (which left every DB State blank).
+            self._api_cache_pending = True
             return
+        self._api_cache_pending = False
         pairs = {(p.shot_id, p.step_id) for p in self.all_previews}
         self._api_cache_thread = ApiCacheThread(self.current_project, status_pairs=pairs, parent=self)
         self._api_cache_thread.finished.connect(self._on_api_cache_finished)
@@ -271,6 +339,13 @@ class RamsesOutWindow(QMainWindow):
         self._populate_filter_dropdowns()
         if changed:
             self._apply_filters()
+
+        # If a fetch was requested while this one was running (e.g. the scan
+        # finished mid-fetch and needs statuses for its pairs), run it now with
+        # the current previews.
+        if self._api_cache_pending:
+            self._api_cache_pending = False
+            self._start_api_cache()
 
     def _populate_filter_dropdowns(self):
         """Populate filter dropdowns from API data (source of truth)."""
@@ -370,13 +445,14 @@ class RamsesOutWindow(QMainWindow):
         self.step_filter.currentTextChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.step_filter)
 
-        self.ok_filter = QCheckBox("Only OK")
-        self.ok_filter.setToolTip(
-            "Show only shots whose pipeline status in the Ramses database is OK\n"
-            "(approved) — prevents sending unapproved previews."
+        self.ready_filter = QCheckBox(f"Only {self._ready_state}")
+        self.ready_filter.setToolTip(
+            f"Show only shots whose pipeline status in the Ramses database is "
+            f"{self._ready_state}\n(ready for review) — the state a preview is set "
+            "to when it's cleared to go out to the client."
         )
-        self.ok_filter.stateChanged.connect(self._apply_filters)
-        filter_layout.addWidget(self.ok_filter)
+        self.ready_filter.stateChanged.connect(self._apply_filters)
+        filter_layout.addWidget(self.ready_filter)
 
         filter_layout.addStretch()
 
@@ -730,9 +806,9 @@ class RamsesOutWindow(QMainWindow):
         if step != "All Steps":
             filtered = PreviewScanner.filter_by_step(filtered, step)
 
-        # Approved-only filter (DB state == OK)
-        if self.ok_filter.isChecked():
-            filtered = [i for i in filtered if (i.db_state or "").upper() == "OK"]
+        # Ready-for-review filter (DB state == configured ready_state, e.g. RFR)
+        if self.ready_filter.isChecked():
+            filtered = [i for i in filtered if (i.db_state or "").upper() == self._ready_state]
 
         self.filtered_previews = filtered
         self._populate_table()
@@ -1032,20 +1108,72 @@ class RamsesOutWindow(QMainWindow):
         # Mark as sent
         success = self.tracker.mark_as_sent(selected, package_name)
 
-        if success:
-            QMessageBox.information(
-                self,
-                "Marked as Sent",
-                f"Successfully marked {len(selected)} previews as sent."
-            )
-            # Refresh to update status
-            self._scan_project()
-        else:
+        if not success:
             QMessageBox.critical(
                 self,
                 "Mark Failed",
                 "Failed to mark some previews. Check file permissions."
             )
+            return
+
+        # Offer to advance the shots that were ready-for-review to the sent
+        # state (e.g. RFR → CHK). Only shots currently in the ready state are
+        # candidates; the rest are just marked sent.
+        candidates = [
+            i for i in selected
+            if (i.db_state or "").upper() == self._ready_state
+        ]
+        n_sent = len(selected)
+        if self._sent_state and candidates and self._confirm_status_advance(n_sent, candidates):
+            self._start_status_advance(candidates)
+        else:
+            QMessageBox.information(
+                self,
+                "Marked as Sent",
+                f"Successfully marked {n_sent} preview{'s' if n_sent != 1 else ''} as sent."
+            )
+            self._scan_project()
+
+    def _confirm_status_advance(self, n_sent: int, candidates) -> bool:
+        """Ask whether to move the ready-state shots to the sent state.
+
+        Combines the send confirmation with the offer so the artist sees a
+        single dialog. Defaults to No so the DB is never changed by accident.
+        """
+        n = len(candidates)
+        reply = QMessageBox.question(
+            self,
+            "Marked as Sent",
+            f"Marked {n_sent} preview{'s' if n_sent != 1 else ''} as sent.\n\n"
+            f"Also set {n} shot{'s' if n != 1 else ''} from "
+            f"{self._ready_state} to {self._sent_state} in the Ramses database?\n"
+            "(Do this once they've been uploaded to your review portal.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _start_status_advance(self, candidates):
+        """Launch the background writer that advances the shots to the sent state."""
+        pairs = [(i.shot_id, i.step_id) for i in candidates]
+        self._advance_thread = StatusAdvanceThread(
+            self.current_project, pairs, self._sent_state, parent=self
+        )
+        self._advance_thread.finished.connect(self._on_status_advance_finished)
+        self._advance_thread.start()
+
+    def _on_status_advance_finished(self, ok: int, fail: int):
+        """Report the status-advance result and refresh the table."""
+        if fail:
+            QMessageBox.warning(
+                self,
+                "Status Update",
+                f"Set {ok} shot(s) to {self._sent_state}; {fail} could not be "
+                "updated (see the console for details).",
+            )
+        # On full success the refreshed table showing the new state is
+        # confirmation enough — no extra dialog.
+        self._scan_project()
 
 
 def main():

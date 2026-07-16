@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -44,7 +45,7 @@ class TestStateColumnAndFilter(unittest.TestCase):
         from ramses_out.gui import RamsesOutWindow
         self.window = RamsesOutWindow()
         self.window.all_previews = [
-            _preview("SH010", db_state="OK", db_color="#00aa00"),
+            _preview("SH010", db_state="RFR", db_color="#3498db"),  # ready for review
             _preview("SH020", db_state="WIP", db_color="#f39c12"),
             _preview("SH030"),  # no DB status
         ]
@@ -61,18 +62,19 @@ class TestStateColumnAndFilter(unittest.TestCase):
 
         # Column 4 is the DB state
         states = {table.item(r, 1).text(): table.item(r, 4).text() for r in range(3)}
-        self.assertEqual(states, {"SH010": "OK", "SH020": "WIP", "SH030": "—"})
+        self.assertEqual(states, {"SH010": "RFR", "SH020": "WIP", "SH030": "—"})
 
-        ok_row = next(r for r in range(3) if table.item(r, 1).text() == "SH010")
-        self.assertEqual(table.item(ok_row, 4).foreground().color().name(), "#00aa00")
+        rfr_row = next(r for r in range(3) if table.item(r, 1).text() == "SH010")
+        self.assertEqual(table.item(rfr_row, 4).foreground().color().name(), "#3498db")
 
-    def test_only_ok_filter(self):
-        self.window.ok_filter.setChecked(True)  # triggers _apply_filters
+    def test_only_ready_filter(self):
+        """The ready filter keeps only shots in the configured ready state (RFR)."""
+        self.window.ready_filter.setChecked(True)  # triggers _apply_filters
         table = self.window.table
         self.assertEqual(table.rowCount(), 1)
         self.assertEqual(table.item(0, 1).text(), "SH010")
 
-        self.window.ok_filter.setChecked(False)
+        self.window.ready_filter.setChecked(False)
         self.assertEqual(self.window.table.rowCount(), 3)
 
     def test_thumbnail_icon_on_shot_item(self):
@@ -219,6 +221,50 @@ class TestSortingAndSelection(unittest.TestCase):
         self.assertEqual(
             [p.shot_id for p in self.window._get_selected_items()], ["SH020"]
         )
+
+
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestApiCachePendingRerun(unittest.TestCase):
+    """The post-scan status fetch must not be dropped when it collides with the
+    empty-pairs fetch started at connection time (which left every State blank)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+        self.window.current_project = MagicMock()  # non-None so _start_api_cache proceeds
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def test_start_while_running_sets_pending(self):
+        running = MagicMock()
+        running.isRunning.return_value = True
+        self.window._api_cache_thread = running
+        self.window._api_cache_pending = False
+
+        self.window._start_api_cache()  # collides with the running fetch
+
+        self.assertTrue(self.window._api_cache_pending)
+        # The running thread was not replaced.
+        self.assertIs(self.window._api_cache_thread, running)
+
+    def test_finish_reruns_when_pending(self):
+        self.window._api_cache_pending = True
+        with patch.object(self.window, "_start_api_cache") as mock_start:
+            self.window._on_api_cache_finished([], [], {}, {})
+        self.assertFalse(self.window._api_cache_pending)
+        mock_start.assert_called_once()
+
+    def test_finish_does_not_rerun_when_not_pending(self):
+        self.window._api_cache_pending = False
+        with patch.object(self.window, "_start_api_cache") as mock_start:
+            self.window._on_api_cache_finished([], [], {}, {})
+        mock_start.assert_not_called()
 
 
 if __name__ == "__main__":

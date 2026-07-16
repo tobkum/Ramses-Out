@@ -103,3 +103,56 @@ def fetch_status_map(daemon, pairs, shot_uuid_map, step_uuid_map, state_map) -> 
         if state_info:
             status_map[(shot_id, step_id)] = state_info
     return status_map
+
+
+def find_state(states, short_name):
+    """Return the RamState whose short name matches (case-insensitive), or None.
+
+    Args:
+        states: RamState list — ``Ramses.states()``
+        short_name: the state short name to find (e.g. "CHK")
+    """
+    target = (short_name or "").upper()
+    if not target:
+        return None
+    for state in states:
+        if (state.shortName() or "").upper() == target:
+            return state
+    return None
+
+
+def advance_statuses(daemon, pairs, target_state, shot_uuid_map, step_uuid_map):
+    """Set the DB state of each (shot, step) pair to ``target_state``.
+
+    Writes the new state to the Ramses database via the daemon and records the
+    current user as the modifier. Pairs whose shot/step is unknown, or whose
+    status can't be fetched, are counted as failures rather than raising.
+
+    Args:
+        daemon: RamDaemonInterface instance
+        pairs: iterable of (shot short name, step short name)
+        target_state: the RamState to set (its uuid is written)
+        shot_uuid_map / step_uuid_map: from :func:`build_api_maps`
+
+    Returns:
+        (ok_count, fail_count)
+    """
+    ok = 0
+    fail = 0
+    for shot_id, step_id in pairs:
+        shot_uuid = shot_uuid_map.get((shot_id or "").upper())
+        step_uuid = step_uuid_map.get((step_id or "").upper())
+        if not shot_uuid or not step_uuid:
+            fail += 1
+            continue
+        try:
+            status = daemon.getStatus(shot_uuid, step_uuid)
+            if not status:
+                fail += 1
+                continue
+            status.setState(target_state)
+            daemon.setStatusModifiedBy(status.uuid())
+            ok += 1
+        except Exception:
+            fail += 1
+    return ok, fail

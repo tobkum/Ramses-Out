@@ -13,6 +13,13 @@ from ramses_config_paths import get_ramses_config_dir, deep_merge  # noqa: F401 
 DEFAULT_CONFIG = {
     "review": {
         "default_collection_path": "",  # Relative to project root, e.g., "for_review"
+        # Pipeline state (DB short name) that gates "ready to send". Previews go
+        # out for review BEFORE a shot is final/OK, so the gate is a review
+        # state, not OK. Configurable because states are project-defined.
+        "ready_state": "RFR",  # "Ready for Review"
+        # State to advance a shot to once its preview has been sent (offered as
+        # a confirmable step after "Mark as Sent"). Empty disables the offer.
+        "sent_state": "CHK",   # "Waiting For Approval"
     },
 }
 
