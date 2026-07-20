@@ -82,7 +82,7 @@ class PreviewCollector:
         """
         lines = []
         lines.append(f"Review Package - {project_name}")
-        lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append("")
 
         # Group by sequence
@@ -113,7 +113,17 @@ class PreviewCollector:
         return "\n".join(lines)
 
     def save_shot_list(self, items: List[PreviewItem], dest: str, project_name: str) -> bool:
-        """Save shot list to file.
+        """Save (or append to) the shot list manifest in *dest*.
+
+        Review packages are frequently collected into the *same* folder across
+        several sends. Rather than overwrite the manifest each time, we append a
+        new, self-timestamped block so the file becomes a chronological log of
+        everything sent to that folder. Re-sending an updated shot is recorded
+        as a fresh dated entry instead of silently replacing the record.
+
+        The first write produces a full block; every later write appends a
+        divider and another full block (each with its own ``Generated:`` time
+        and ``Total:``).
 
         Args:
             items: List of preview items
@@ -129,8 +139,14 @@ class PreviewCollector:
         content = self.generate_shot_list(items, project_name)
 
         try:
-            with open(shot_list_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            already_has_log = shot_list_path.exists() and shot_list_path.stat().st_size > 0
+            if already_has_log:
+                divider = "\n\n" + ("=" * 60) + "\n\n"
+                with open(shot_list_path, "a", encoding="utf-8") as f:
+                    f.write(divider + content)
+            else:
+                with open(shot_list_path, "w", encoding="utf-8") as f:
+                    f.write(content)
             return True
         except Exception:
             return False

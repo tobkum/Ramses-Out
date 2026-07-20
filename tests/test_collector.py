@@ -222,6 +222,23 @@ class TestPreviewCollector(unittest.TestCase):
         self.assertIn("TEST_PROJECT", content)
         self.assertIn("SH010", content)
 
+    def test_save_shot_list_appends_across_sends(self):
+        """A second send into the same folder must append, not overwrite."""
+        first = [self.create_preview_item(self.preview1, "SH010", "COMP")]
+        second = [self.create_preview_item(self.preview2, "SH020", "ANIM")]
+
+        self.assertTrue(self.collector.save_shot_list(first, str(self.dest_dir), "TEST_PROJECT"))
+        self.assertTrue(self.collector.save_shot_list(second, str(self.dest_dir), "TEST_PROJECT"))
+
+        content = (self.dest_dir / "shot_list.txt").read_text(encoding="utf-8")
+
+        # Both packages survive in the log.
+        self.assertIn("SH010", content)
+        self.assertIn("SH020", content)
+        # Two dated blocks -> two Total lines, separated by a divider.
+        self.assertEqual(content.count("Total:"), 2)
+        self.assertIn("=" * 60, content)
+
     def test_shot_list_shows_file_sizes(self):
         """Test shot list includes file sizes."""
         items = [self.create_preview_item(self.preview1, "SH010", "COMP")]
