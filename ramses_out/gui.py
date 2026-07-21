@@ -460,9 +460,10 @@ class RamsesOutWindow(QMainWindow):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(8)
+        self.table.setColumnCount(9)
         self.table.setHorizontalHeaderLabels([
-            "", "Shot", "Sequence", "Step", "State", "Format", "Size (MB)", "Status"
+            "", "Shot", "Sequence", "Step", "State", "Format", "Size (MB)", "Status",
+            "Modified"
         ])
         # Column sizing: Fixed widths for consistent layout
         header = self.table.horizontalHeader()
@@ -481,6 +482,8 @@ class RamsesOutWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(6, 80)  # Size (MB)
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)  # Status stretches
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(8, 130)  # Modified (preview file mtime)
         # Thumbnails render as the Shot item's icon (no extra column needed)
         self.table.setIconSize(QSize(96, 54))
         self.table.verticalHeader().setDefaultSectionSize(60)
@@ -905,6 +908,18 @@ class RamsesOutWindow(QMainWindow):
                     "Already included in a previous delivery"
                 )
             self.table.setItem(row, 7, status_item)
+
+            # Last-modified time of the preview file. On a Drive-synced project
+            # this is the local mtime, so a stale value here is a good tell that
+            # Google Drive hasn't finished syncing a freshly rendered preview.
+            # The "%Y-%m-%d %H:%M" text sorts chronologically as plain strings.
+            mod_dt = item.date_modified
+            mod_item = QTableWidgetItem(
+                mod_dt.strftime("%Y-%m-%d %H:%M") if mod_dt else ""
+            )
+            if mod_dt:
+                mod_item.setToolTip(mod_dt.strftime("%Y-%m-%d %H:%M:%S"))
+            self.table.setItem(row, 8, mod_item)
 
         self.table.blockSignals(False)
         self.table.setSortingEnabled(True)

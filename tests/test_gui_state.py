@@ -57,7 +57,7 @@ class TestStateColumnAndFilter(unittest.TestCase):
     def test_state_column_rendered_with_color(self):
         self.window._apply_filters()
         table = self.window.table
-        self.assertEqual(table.columnCount(), 8)
+        self.assertEqual(table.columnCount(), 9)
         self.assertEqual(table.rowCount(), 3)
 
         # Column 4 is the DB state
@@ -76,6 +76,18 @@ class TestStateColumnAndFilter(unittest.TestCase):
 
         self.window.ready_filter.setChecked(False)
         self.assertEqual(self.window.table.rowCount(), 3)
+
+    def test_modified_column_shows_preview_mtime(self):
+        """The Modified column renders each preview's date_modified."""
+        fixed = datetime(2026, 7, 21, 14, 30, 5)
+        self.window.all_previews[0].date_modified = fixed
+        self.window._apply_filters()
+        table = self.window.table
+        row = next(r for r in range(table.rowCount()) if table.item(r, 1).text() == "SH010")
+        cell = table.item(row, 8)
+        self.assertEqual(cell.text(), "2026-07-21 14:30")
+        # Tooltip carries second precision for spotting fine sync lag.
+        self.assertEqual(cell.toolTip(), "2026-07-21 14:30:05")
 
     def test_auto_selects_only_rfr_previews(self):
         """Default selection checks only RFR previews, not every ready one.
