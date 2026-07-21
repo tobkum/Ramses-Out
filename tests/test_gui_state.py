@@ -316,5 +316,68 @@ class TestApiCachePendingRerun(unittest.TestCase):
         mock_start.assert_not_called()
 
 
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestScanWatchdog(unittest.TestCase):
+    """The watchdog turns a Google Drive hydration stall (a blocked scan that
+    never emits finished/error) into a labelled, recoverable UI state instead
+    of a permanent 'Scanning...' spinner."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def test_watchdog_marks_stalled_and_reenables_ui(self):
+        """When the scan is still running as the watchdog fires, name the
+        likely culprit and hand the UI back to the user."""
+        self.window.scan_thread = MagicMock()
+        self.window.scan_thread.isRunning.return_value = True
+        self.window.table.setEnabled(False)
+
+        self.window._on_scan_stalled()
+
+        self.assertIn("Stalled", self.window.last_scan_label.text())
+        self.assertIn("Google Drive", self.window.last_scan_label.text())
+        self.assertTrue(self.window.table.isEnabled())
+
+    def test_watchdog_is_noop_when_scan_already_finished(self):
+        """A late-firing watchdog (scan finished first) must not clobber the
+        real 'Last Scan: <time>' label."""
+        self.window.scan_thread = MagicMock()
+        self.window.scan_thread.isRunning.return_value = False
+        self.window.last_scan_label.setText("Last Scan: 12:00:00")
+
+        self.window._on_scan_stalled()
+
+        self.assertEqual(self.window.last_scan_label.text(), "Last Scan: 12:00:00")
+
+    def test_finish_stops_watchdog(self):
+        """A completed scan disarms the watchdog so it can't fire spuriously."""
+        self.window._scan_watchdog.start()
+        self.assertTrue(self.window._scan_watchdog.isActive())
+
+        with patch.object(self.window, "_start_api_cache"):
+            self.window._on_scan_finished([])
+
+        self.assertFalse(self.window._scan_watchdog.isActive())
+
+    def test_error_stops_watchdog(self):
+        """A failed scan disarms the watchdog too."""
+        self.window._scan_watchdog.start()
+        self.assertTrue(self.window._scan_watchdog.isActive())
+
+        with patch("ramses_out.gui.QMessageBox.critical"):
+            self.window._on_scan_error("boom")
+
+        self.assertFalse(self.window._scan_watchdog.isActive())
+
+
 if __name__ == "__main__":
     unittest.main()

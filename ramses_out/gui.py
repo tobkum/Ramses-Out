@@ -223,6 +223,11 @@ class StatusAdvanceThread(QThread):
 class RamsesOutWindow(QMainWindow):
     """Main window for Ramses Out."""
 
+    # How long a scan may run before the watchdog assumes a Google Drive
+    # hydration stall and re-enables the UI. Generous so a genuinely large but
+    # healthy scan isn't flagged; a stalled Drive never returns anyway.
+    SCAN_WATCHDOG_MS = 45000
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Ramses Out")
@@ -282,6 +287,19 @@ class RamsesOutWindow(QMainWindow):
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setInterval(5000)
         self._reconnect_timer.timeout.connect(self._try_connect)
+
+        # Scan watchdog: the scan is a pure filesystem walk, and Google Drive
+        # can stall indefinitely hydrating a folder that carries an
+        # un-reconciled remote change (typically a preview a colleague just
+        # added). That blocks the ScanThread in the OS with no error raised, so
+        # without this the UI sits on "Scanning..." forever, indistinguishable
+        # from a bug in our own code. The watchdog can't unstick the OS call,
+        # but it names the likely culprit and re-enables the UI. See
+        # _on_scan_stalled.
+        self._scan_watchdog = QTimer(self)
+        self._scan_watchdog.setSingleShot(True)
+        self._scan_watchdog.setInterval(self.SCAN_WATCHDOG_MS)
+        self._scan_watchdog.timeout.connect(self._on_scan_stalled)
 
         # Build UI
         self._build_ui()
@@ -750,6 +768,7 @@ class RamsesOutWindow(QMainWindow):
         self.scan_thread.finished.connect(self._on_scan_finished)
         self.scan_thread.error.connect(self._on_scan_error)
         self.scan_thread.start()
+        self._scan_watchdog.start()
 
         # Update UI
         self.last_scan_label.setText("Last Scan: Scanning...")
@@ -757,6 +776,7 @@ class RamsesOutWindow(QMainWindow):
 
     def _on_scan_finished(self, previews: List[PreviewItem]):
         """Handle scan completion."""
+        self._scan_watchdog.stop()
         self.all_previews = previews
 
         # Resolve sequences and DB states using whatever API data is cached.
@@ -778,6 +798,7 @@ class RamsesOutWindow(QMainWindow):
 
     def _on_scan_error(self, error: str):
         """Handle scan error."""
+        self._scan_watchdog.stop()
         # Reset the status label first: leaving it on "Scanning..." makes a
         # failed scan look like an endless one (empty list, spinner stuck).
         self.last_scan_label.setText("Last Scan: Failed")
@@ -787,6 +808,24 @@ class RamsesOutWindow(QMainWindow):
             "Scan Error",
             f"Error scanning project: {error}"
         )
+
+    def _on_scan_stalled(self):
+        """Watchdog fired: the scan has not returned within SCAN_WATCHDOG_MS.
+
+        The usual cause is Google Drive stalling while it hydrates a folder
+        carrying an un-reconciled remote change (e.g. a preview a colleague
+        just added); the filesystem call blocks with no exception, so the
+        ScanThread never emits finished/error. That thread can't be safely
+        killed, so we leave it running: if Drive recovers it will drain on its
+        own and _on_scan_finished repopulates the table normally. Meanwhile we
+        re-enable the UI and name the likely culprit instead of showing a
+        silent, bug-lookalike spinner. A Google Drive restart typically clears
+        the stall.
+        """
+        if not (self.scan_thread and self.scan_thread.isRunning()):
+            return
+        self.last_scan_label.setText("Last Scan: Stalled (check Google Drive sync)")
+        self.table.setEnabled(True)
 
     def _apply_filters(self):
         """Apply current filters to preview list."""
@@ -1093,6 +1132,7 @@ class RamsesOutWindow(QMainWindow):
                     self.collection_thread.progress.disconnect()
                 except RuntimeError:
                     pass
+        self._scan_watchdog.stop()
         if self.scan_thread and self.scan_thread.isRunning():
             if not self.scan_thread.wait(5000):
                 try:
