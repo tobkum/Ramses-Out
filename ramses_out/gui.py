@@ -775,12 +775,15 @@ class RamsesOutWindow(QMainWindow):
 
     def _on_scan_error(self, error: str):
         """Handle scan error."""
+        # Reset the status label first: leaving it on "Scanning..." makes a
+        # failed scan look like an endless one (empty list, spinner stuck).
+        self.last_scan_label.setText("Last Scan: Failed")
+        self.table.setEnabled(True)
         QMessageBox.critical(
             self,
             "Scan Error",
             f"Error scanning project: {error}"
         )
-        self.table.setEnabled(True)
 
     def _apply_filters(self):
         """Apply current filters to preview list."""
