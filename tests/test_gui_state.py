@@ -77,6 +77,43 @@ class TestStateColumnAndFilter(unittest.TestCase):
         self.window.ready_filter.setChecked(False)
         self.assertEqual(self.window.table.rowCount(), 3)
 
+    def test_auto_selects_only_rfr_previews(self):
+        """Default selection checks only RFR previews, not every ready one.
+
+        All three fixtures are is_ready ("Ready"), but only SH010 is RFR in the
+        DB. WIP (artist self-review) and no-status previews must start
+        unchecked so they can't be sent out by accident.
+        """
+        from PySide6.QtCore import Qt
+        self.window._apply_filters()
+        table = self.window.table
+        checked = {
+            table.item(r, 1).text()
+            for r in range(table.rowCount())
+            if table.item(r, 0).checkState() == Qt.CheckState.Checked
+        }
+        self.assertEqual(checked, {"SH010"})
+
+    def test_auto_select_is_independent_of_ready_filter(self):
+        """Turning the 'Only RFR' display filter on/off never changes which
+        rows are pre-checked - RFR is still the only auto-selected state."""
+        from PySide6.QtCore import Qt
+
+        def checked_shots():
+            t = self.window.table
+            return {
+                t.item(r, 1).text()
+                for r in range(t.rowCount())
+                if t.item(r, 0).checkState() == Qt.CheckState.Checked
+            }
+
+        self.window._apply_filters()  # initial populate (filter off)
+        self.assertEqual(checked_shots(), {"SH010"})
+        self.window.ready_filter.setChecked(True)   # filter on -> repopulates
+        self.assertEqual(checked_shots(), {"SH010"})
+        self.window.ready_filter.setChecked(False)  # back off -> repopulates
+        self.assertEqual(checked_shots(), {"SH010"})
+
     def test_thumbnail_icon_on_shot_item(self):
         """Previews with a thumbnail render it as the Shot item's icon."""
         import tempfile, shutil

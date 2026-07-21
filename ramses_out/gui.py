@@ -839,8 +839,18 @@ class RamsesOutWindow(QMainWindow):
                 | Qt.ItemFlag.ItemIsEnabled
                 | Qt.ItemFlag.ItemIsSelectable
             )
+            # Auto-select only previews that are Ready For Review in the DB and
+            # not already sent. A preview an artist rendered just to review for
+            # themselves (any non-RFR state) must NOT be pre-checked, so it
+            # can't be sent out by accident. This is deliberately independent of
+            # the "Only <RFR>" display filter — hidden or shown, the default
+            # selection is the same.
+            auto_select = (
+                item.is_ready
+                and (item.db_state or "").upper() == self._ready_state
+            )
             check_item.setCheckState(
-                Qt.CheckState.Checked if item.is_ready else Qt.CheckState.Unchecked
+                Qt.CheckState.Checked if auto_select else Qt.CheckState.Unchecked
             )
             # The row's identity: maps back to the PreviewItem after sorting
             check_item.setData(Qt.ItemDataRole.UserRole, item.file_path)
