@@ -381,3 +381,67 @@ class TestScanWatchdog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestHideDoneFilter(unittest.TestCase):
+    """Finished shots (db_state == done_state, default OK) are hidden by default."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+        self.window.all_previews = [
+            _preview("SH010", db_state="RFR"),
+            _preview("SH020", db_state="WIP"),
+            _preview("SH030", db_state="OK"),    # finished
+            _preview("SH040", db_state="ok"),    # finished, lower case in the DB
+            _preview("SH050"),                   # no DB status at all
+        ]
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def _shots(self):
+        t = self.window.table
+        return sorted(t.item(r, 1).text() for r in range(t.rowCount()))
+
+    def test_checked_by_default(self):
+        self.assertTrue(self.window.hide_done_filter.isChecked())
+
+    def test_finished_shots_hidden_by_default(self):
+        self.window._apply_filters()
+        self.assertEqual(self._shots(), ["SH010", "SH020", "SH050"])
+
+    def test_case_insensitive(self):
+        """A lower-case 'ok' in the database is still finished."""
+        self.window._apply_filters()
+        self.assertNotIn("SH040", self._shots())
+
+    def test_shots_without_a_status_stay_visible(self):
+        """No DB status is not the same as finished."""
+        self.window._apply_filters()
+        self.assertIn("SH050", self._shots())
+
+    def test_unchecking_shows_them_again(self):
+        self.window.hide_done_filter.setChecked(False)  # triggers _apply_filters
+        self.assertEqual(
+            self._shots(), ["SH010", "SH020", "SH030", "SH040", "SH050"]
+        )
+
+    def test_combines_with_the_ready_filter(self):
+        """Both filters apply; RFR shots are never finished, so RFR survives."""
+        self.window.ready_filter.setChecked(True)
+        self.assertEqual(self._shots(), ["SH010"])
+
+    def test_empty_done_state_disables_the_filter(self):
+        """review.done_state = "" means nothing is treated as finished."""
+        self.window._done_state = ""
+        self.window._apply_filters()
+        self.assertEqual(
+            self._shots(), ["SH010", "SH020", "SH030", "SH040", "SH050"]
+        )

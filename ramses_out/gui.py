@@ -255,6 +255,7 @@ class RamsesOutWindow(QMainWindow):
         review_cfg = self.config.get("review", {})
         self._ready_state = str(review_cfg.get("ready_state", "RFR")).upper()
         self._sent_state = str(review_cfg.get("sent_state", "CHK")).upper()
+        self._done_state = str(review_cfg.get("done_state", "OK")).upper()
 
         # Cache sequences, steps, shot→sequence map and statuses from API (source of truth)
         self.api_sequences: List[str] = []
@@ -471,6 +472,25 @@ class RamsesOutWindow(QMainWindow):
         )
         self.ready_filter.stateChanged.connect(self._apply_filters)
         filter_layout.addWidget(self.ready_filter)
+
+        # Finished shots are hidden by default: they're done, so they only
+        # crowd the list. Checked on every launch rather than remembered, so
+        # the view always starts on "what still needs attention".
+        self.hide_done_filter = QCheckBox(
+            f"Hide {self._done_state}" if self._done_state else "Hide finished"
+        )
+        self.hide_done_filter.setToolTip(
+            f"Hide shots whose pipeline status in the Ramses database is "
+            f"{self._done_state}\n(finished — nothing left to send). Uncheck to "
+            "see them again."
+            if self._done_state else
+            "No finished state is configured (review.done_state is empty)."
+        )
+        # An empty done_state disables the filter rather than hiding everything.
+        self.hide_done_filter.setChecked(bool(self._done_state))
+        self.hide_done_filter.setEnabled(bool(self._done_state))
+        self.hide_done_filter.stateChanged.connect(self._apply_filters)
+        filter_layout.addWidget(self.hide_done_filter)
 
         filter_layout.addStretch()
 
@@ -854,6 +874,12 @@ class RamsesOutWindow(QMainWindow):
         # Ready-for-review filter (DB state == configured ready_state, e.g. RFR)
         if self.ready_filter.isChecked():
             filtered = [i for i in filtered if (i.db_state or "").upper() == self._ready_state]
+
+        # Hide finished shots (DB state == configured done_state, e.g. OK).
+        # Only an exact match is hidden: a preview with no DB status at all is
+        # not finished, so it stays visible.
+        if self._done_state and self.hide_done_filter.isChecked():
+            filtered = [i for i in filtered if (i.db_state or "").upper() != self._done_state]
 
         self.filtered_previews = filtered
         self._populate_table()

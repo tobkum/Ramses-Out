@@ -20,6 +20,10 @@ DEFAULT_CONFIG = {
         # State to advance a shot to once its preview has been sent (offered as
         # a confirmable step after "Mark as Sent"). Empty disables the offer.
         "sent_state": "CHK",   # "Waiting For Approval"
+        # State meaning "finished". Shots in it are hidden by default so they
+        # don't crowd the list (toggleable in the filter bar). Empty disables
+        # the filter entirely.
+        "done_state": "OK",    # "Approved / finished"
     },
 }
 
