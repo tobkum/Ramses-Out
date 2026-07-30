@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -215,6 +216,85 @@ class TestPreviewScanner(unittest.TestCase):
         previews = self.scanner.scan_project()
         p = next(x for x in previews if x.shot_id == "SH010")
         self.assertIsNone(p.thumbnail_path)
+
+    def test_thumbnail_falls_back_to_another_step_of_the_same_shot(self):
+        """The real case: Fusion writes only the .mov, the plate has the still.
+
+        Shot folders here are <shots>/TEST_S_SH010/TEST_S_SH010_<STEP>/_preview,
+        so the still lives one step over from the preview being listed.
+        """
+        plate_preview = (
+            self.shots_folder / "TEST_S_SH010" / "TEST_S_SH010_PLATE" / "_preview"
+        )
+        plate_preview.mkdir(parents=True)
+        (plate_preview / "TEST_S_SH010_PLATE.jpg").write_text("jpg")
+
+        previews = self.scanner.scan_project()
+        p = next(x for x in previews if x.shot_id == "SH010")
+        self.assertIsNotNone(p.thumbnail_path, "should borrow the plate still")
+        self.assertTrue(p.thumbnail_path.endswith("TEST_S_SH010_PLATE.jpg"))
+
+    def test_own_folder_still_beats_a_sibling_step(self):
+        """A still in the preview's own folder must win over another step's."""
+        plate_preview = (
+            self.shots_folder / "TEST_S_SH010" / "TEST_S_SH010_PLATE" / "_preview"
+        )
+        plate_preview.mkdir(parents=True)
+        (plate_preview / "TEST_S_SH010_PLATE.jpg").write_text("jpg")
+        (self.preview1_file.parent / "own_still.png").write_text("png")
+
+        previews = self.scanner.scan_project()
+        p = next(x for x in previews if x.shot_id == "SH010")
+        self.assertTrue(p.thumbnail_path.endswith("own_still.png"))
+
+    def test_sibling_search_does_not_leak_across_shots(self):
+        """SH020's still must never be used for SH010."""
+        other = (
+            self.shots_folder / "TEST_S_SH020" / "TEST_S_SH020_PLATE" / "_preview"
+        )
+        other.mkdir(parents=True)
+        (other / "TEST_S_SH020_PLATE.jpg").write_text("jpg")
+
+        previews = self.scanner.scan_project()
+        p = next(x for x in previews if x.shot_id == "SH010")
+        self.assertIsNone(p.thumbnail_path)
+
+    def test_sibling_lookup_is_cached_per_shot(self):
+        """One directory walk per shot, not one per step.
+
+        This runs on a synced network share; an unbounded walk per preview is
+        what the scan watchdog exists to survive.
+        """
+        shot = self.shots_folder / "TEST_S_SH010"
+        plate_preview = shot / "TEST_S_SH010_PLATE" / "_preview"
+        plate_preview.mkdir(parents=True)
+        (plate_preview / "TEST_S_SH010_PLATE.jpg").write_text("jpg")
+        # A second step with its own video and no still: both previews of this
+        # shot must resolve through a single cached lookup.
+        second = shot / "TEST_S_SH010_ANIM" / "_preview"
+        second.mkdir(parents=True)
+        (second / "TEST_S_SH010_ANIM.mp4").write_text("fake video data")
+
+        calls = []
+        real_first_image = type(self.scanner)._first_image.__func__
+
+        def counting(cls, folder):
+            calls.append(str(folder))
+            return real_first_image(cls, folder)
+
+        with patch.object(
+            type(self.scanner), "_first_image", classmethod(counting)
+        ):
+            previews = self.scanner.scan_project()
+
+        shot_previews = [x for x in previews if x.shot_id == "SH010"]
+        self.assertEqual(len(shot_previews), 2)
+        for p in shot_previews:
+            self.assertTrue(p.thumbnail_path.endswith("TEST_S_SH010_PLATE.jpg"))
+
+        # The sibling PLATE/_preview folder is walked once, not once per step.
+        plate_walks = [c for c in calls if c.endswith("_preview") and "PLATE" in c]
+        self.assertEqual(len(plate_walks), 1, calls)
 
     def test_filter_by_date_today(self):
         """Test filtering previews by today."""

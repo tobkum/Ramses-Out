@@ -19,6 +19,12 @@ class PreviewScanner:
         """Initialize scanner with project root path."""
         self.project_root = Path(project_root)
         self.shots_folder = self.project_root / FolderNames.shots
+        # Shot folder -> still image path (or None). Populated lazily by
+        # _shot_thumbnail(); one entry per shot, so the four steps of a shot
+        # cost a single directory walk rather than four. Lives for one scan
+        # only (ScanThread builds a fresh scanner each run), so a still added
+        # between scans is picked up.
+        self._shot_thumbnails: dict = {}
 
     def scan_project(self) -> List[PreviewItem]:
         """Scan project for all preview files.
@@ -145,27 +151,81 @@ class PreviewScanner:
         except (OSError, ValueError):
             return None
 
-    @staticmethod
-    def _find_thumbnail(preview_file: Path) -> Optional[str]:
-        """Locate a still image to use as this preview's thumbnail.
+    _STILL_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
-        Ramses-Ingest writes a ``PROJ_S_SHOT_STEP.jpg`` next to its proxies, so
-        an image with the same stem is preferred. Failing that, any image in
-        the folder works — a ``_preview`` folder belongs to exactly one
-        shot+step. Returns None when the folder has no still image (e.g.
-        Fusion-only previews).
-        """
-        for ext in (".jpg", ".jpeg", ".png"):
-            candidate = preview_file.with_suffix(ext)
-            if candidate.is_file():
-                return str(candidate)
+    @classmethod
+    def _first_image(cls, folder: Path) -> Optional[str]:
+        """First still image in *folder*, or None. Sorted, so it's stable."""
         try:
-            for entry in sorted(preview_file.parent.iterdir()):
-                if entry.is_file() and entry.suffix.lower() in (".jpg", ".jpeg", ".png"):
+            for entry in sorted(folder.iterdir()):
+                if entry.is_file() and entry.suffix.lower() in cls._STILL_EXTENSIONS:
                     return str(entry)
         except (PermissionError, OSError):
             pass
         return None
+
+    def _find_thumbnail(self, preview_file: Path) -> Optional[str]:
+        """Locate a still image to use as this preview's thumbnail.
+
+        Three steps, cheapest first:
+
+        1. An image with the preview's own stem. Ramses-Ingest writes a
+           ``PROJ_S_SHOT_STEP.jpg`` next to its proxies.
+        2. Any image in the same ``_preview`` folder, which belongs to exactly
+           one shot+step.
+        3. Any image in *another step's* ``_preview`` folder for the same shot.
+
+        Step 3 exists because the previews this tool actually lists are the
+        ones Fusion renders, and Fusion writes only the movie. The still that
+        does exist for the shot is the plate's, one step over. Showing the
+        plate rather than the comp is a fair trade for a thumbnail whose job is
+        to identify which shot a row is.
+
+        Returns None when the shot has no still image anywhere.
+        """
+        for ext in self._STILL_EXTENSIONS:
+            candidate = preview_file.with_suffix(ext)
+            if candidate.is_file():
+                return str(candidate)
+
+        own = self._first_image(preview_file.parent)
+        if own:
+            return own
+
+        return self._shot_thumbnail(preview_file)
+
+    def _shot_thumbnail(self, preview_file: Path) -> Optional[str]:
+        """A still from any step of this preview's shot, or None.
+
+        Cached per shot: a shot with four steps costs one walk, not four. The
+        search is deliberately shallow (``shot/*/_preview`` only, never a
+        recursive descent) because project roots here live on a synced network
+        share where a broad walk is slow enough to trip the scan watchdog.
+        """
+        # <shot>/<step>/_preview/<file>
+        step_folder = preview_file.parent.parent
+        shot_folder = step_folder.parent
+        key = str(shot_folder)
+
+        if key in self._shot_thumbnails:
+            return self._shot_thumbnails[key]
+
+        found = None
+        try:
+            for sibling in sorted(shot_folder.iterdir()):
+                if not sibling.is_dir() or sibling == step_folder:
+                    continue
+                preview_dir = sibling / FolderNames.preview
+                if not preview_dir.is_dir():
+                    continue
+                found = self._first_image(preview_dir)
+                if found:
+                    break
+        except (PermissionError, OSError):
+            found = None
+
+        self._shot_thumbnails[key] = found
+        return found
 
     @staticmethod
     def _marker_target_file(marker_file: Path) -> Optional[str]:
