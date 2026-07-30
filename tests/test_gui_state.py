@@ -445,3 +445,75 @@ class TestHideDoneFilter(unittest.TestCase):
         self.assertEqual(
             self._shots(), ["SH010", "SH020", "SH030", "SH040", "SH050"]
         )
+
+
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestDefaultShotSorting(unittest.TestCase):
+    """The table opens sorted by Shot, and sorts shot ids naturally.
+
+    Before this, rows appeared in whatever order the scanner walked the
+    filesystem in. Natural ordering matters because the shot list manifest
+    (PreviewCollector) already sorts that way, and a table that disagreed
+    with the manifest it produces is worse than one that is merely unsorted.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from PySide6.QtCore import Qt
+        self.Qt = Qt
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def _shots_in_order(self):
+        t = self.window.table
+        return [t.item(r, 1).text() for r in range(t.rowCount())]
+
+    def _load(self, shots):
+        self.window.all_previews = [_preview(s) for s in shots]
+        self.window._apply_filters()
+
+    def test_default_sort_is_the_shot_column_ascending(self):
+        header = self.window.table.horizontalHeader()
+        self.assertEqual(header.sortIndicatorSection(), 1)
+        self.assertEqual(header.sortIndicatorOrder(), self.Qt.SortOrder.AscendingOrder)
+
+    def test_rows_are_sorted_regardless_of_scan_order(self):
+        self._load(["SH030", "SH010", "SH020"])
+        self.assertEqual(self._shots_in_order(), ["SH010", "SH020", "SH030"])
+
+    def test_shot_ids_sort_naturally_not_lexically(self):
+        """SH9 before SH10. Plain string ordering gets this backwards."""
+        self._load(["SH10", "SH9", "SH2"])
+        self.assertEqual(self._shots_in_order(), ["SH2", "SH9", "SH10"])
+
+    def test_sequence_column_also_sorts_naturally(self):
+        self.window.all_previews = [
+            _preview("SH001"), _preview("SH002"), _preview("SH003"),
+        ]
+        self.window.all_previews[0].sequence_id = "SEQ10"
+        self.window.all_previews[1].sequence_id = "SEQ9"
+        self.window.all_previews[2].sequence_id = "SEQ2"
+        self.window._apply_filters()
+        self.window.table.sortItems(2, self.Qt.SortOrder.AscendingOrder)
+        t = self.window.table
+        seqs = [t.item(r, 2).text() for r in range(t.rowCount())]
+        self.assertEqual(seqs, ["SEQ2", "SEQ9", "SEQ10"])
+
+    def test_a_user_chosen_sort_survives_a_refilter(self):
+        """Re-populating must not yank the view back to Shot ascending."""
+        self._load(["SH010", "SH020", "SH030"])
+        self.window.table.sortItems(1, self.Qt.SortOrder.DescendingOrder)
+        self.window._apply_filters()
+        self.assertEqual(self._shots_in_order(), ["SH030", "SH020", "SH010"])
+
+    def test_mixed_shapes_do_not_raise_during_sort(self):
+        """A key of mixed int/str parts can't compare; it must not crash."""
+        self._load(["10", "SH10", "SH2", "007"])
+        self.assertEqual(len(self._shots_in_order()), 4)

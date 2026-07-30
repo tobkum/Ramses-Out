@@ -1,6 +1,7 @@
 """Main GUI for Ramses Out."""
 
 import logging
+import re
 import sys
 import os
 from pathlib import Path
@@ -49,6 +50,34 @@ if str(lib_path) not in sys.path:
     sys.path.insert(0, str(lib_path))
 
 from ramses import Ramses
+
+
+def _natural_sort_key(s: str):
+    """Key for natural alphanumeric sorting (e.g. SH1, SH2, SH10).
+
+    Same rule PreviewCollector uses for the shot list manifest, so the table
+    and the manifest agree on ordering.
+    """
+    return [int(text) if text.isdigit() else text.lower()
+            for text in re.split(r'([0-9]+)', s or "")]
+
+
+class NaturalSortItem(QTableWidgetItem):
+    """A table item that sorts naturally rather than lexically.
+
+    QTableWidget sorts by comparing items with `<`, and the default compares
+    display strings, which puts SH10 before SH9. Shot and sequence ids are
+    exactly that shape, so those columns use this instead.
+    """
+
+    def __lt__(self, other):
+        try:
+            return _natural_sort_key(self.text()) < _natural_sort_key(other.text())
+        except (TypeError, AttributeError):
+            # Mixed types in a key (e.g. "SH10" vs "10") can't compare;
+            # fall back to Qt's plain string ordering rather than raise
+            # inside the sort and take the whole table down.
+            return super().__lt__(other)
 
 
 class ScanThread(QThread):
@@ -537,6 +566,11 @@ class RamsesOutWindow(QMainWindow):
         # so they move with their rows when sorting; each row's item carries
         # the preview's file path in UserRole to map back to the data.
         self.table.setSortingEnabled(True)
+        # Default to Shot ascending. Set once, on the empty table: this only
+        # moves the header's sort indicator, and _populate_table()'s
+        # setSortingEnabled(True) re-applies whatever the indicator says. So a
+        # column the user picks instead survives rescans and filter changes.
+        self.table.sortByColumn(1, Qt.SortOrder.AscendingOrder)
         self.table.itemChanged.connect(self._on_table_item_changed)
         layout.addWidget(self.table)
 
@@ -925,14 +959,14 @@ class RamsesOutWindow(QMainWindow):
             self.table.setItem(row, 0, check_item)
 
             # Data columns
-            shot_item = QTableWidgetItem(item.shot_id)
+            shot_item = NaturalSortItem(item.shot_id)
             if item.thumbnail_path:
                 # QIcon defers decoding until first paint, so populating a
                 # large table stays fast even with many thumbnails.
                 shot_item.setIcon(QIcon(item.thumbnail_path))
             shot_item.setToolTip("Double-click to play")
             self.table.setItem(row, 1, shot_item)
-            self.table.setItem(row, 2, QTableWidgetItem(item.sequence_id))
+            self.table.setItem(row, 2, NaturalSortItem(item.sequence_id))
             self.table.setItem(row, 3, QTableWidgetItem(item.step_id))
 
             # Pipeline state from the Ramses DB, colored like the client
