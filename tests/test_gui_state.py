@@ -517,3 +517,46 @@ class TestDefaultShotSorting(unittest.TestCase):
         """A key of mixed int/str parts can't compare; it must not crash."""
         self._load(["10", "SH10", "SH2", "007"])
         self.assertEqual(len(self._shots_in_order()), 4)
+
+
+@unittest.skipUnless(HAS_QT, "PySide6 not available")
+class TestShotColumnFitsThumbnail(unittest.TestCase):
+    """The Shot cell holds the thumbnail AND the id, so it must fit both.
+
+    The column was a literal 100px, sized for the text alone. That was fine
+    while no thumbnail ever resolved; once they did, the id was clipped.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from ramses_out.gui import RamsesOutWindow
+        self.window = RamsesOutWindow()
+
+    def tearDown(self):
+        self.window.close()
+        self.window.deleteLater()
+
+    def test_shot_column_fits_icon_plus_a_typical_id(self):
+        from ramses_out.gui import THUMBNAIL_SIZE
+        header = self.window.table.horizontalHeader()
+        width = header.sectionSize(1)
+        text = self.window.table.fontMetrics().horizontalAdvance("SH0000")
+        self.assertGreaterEqual(
+            width, THUMBNAIL_SIZE.width() + text,
+            "Shot column must fit the thumbnail and the id side by side",
+        )
+
+    def test_icon_size_matches_the_declared_thumbnail_size(self):
+        """Width and row height are both derived from it; keep them in step."""
+        from ramses_out.gui import THUMBNAIL_SIZE
+        self.assertEqual(self.window.table.iconSize(), THUMBNAIL_SIZE)
+
+    def test_row_height_fits_the_thumbnail(self):
+        from ramses_out.gui import THUMBNAIL_SIZE
+        self.assertGreaterEqual(
+            self.window.table.verticalHeader().defaultSectionSize(),
+            THUMBNAIL_SIZE.height(),
+        )

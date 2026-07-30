@@ -52,6 +52,11 @@ if str(lib_path) not in sys.path:
 from ramses import Ramses
 
 
+# 16:9 thumbnail shown as the Shot cell's icon. The Shot column width and the
+# table's row height are both derived from this, so changing it here is enough.
+THUMBNAIL_SIZE = QSize(96, 54)
+
+
 def _natural_sort_key(s: str):
     """Key for natural alphanumeric sorting (e.g. SH1, SH2, SH10).
 
@@ -537,7 +542,13 @@ class RamsesOutWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.resizeSection(0, 30)  # Checkbox
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(1, 100)  # Shot ID (e.g., SH010)
+        # Shot ID shares its cell with the thumbnail icon, so the width has to
+        # cover the icon AND the text. Derived rather than hard-coded so it
+        # stays right if the icon size or the UI font changes: a literal that
+        # only fitted the text is what left the id clipped once thumbnails
+        # started resolving.
+        _shot_text = self.table.fontMetrics().horizontalAdvance("SH0000_")
+        header.resizeSection(1, THUMBNAIL_SIZE.width() + _shot_text + 24)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(2, 80)  # Sequence (e.g., SEQ01)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
@@ -552,8 +563,8 @@ class RamsesOutWindow(QMainWindow):
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Interactive)
         header.resizeSection(8, 130)  # Modified (preview file mtime)
         # Thumbnails render as the Shot item's icon (no extra column needed)
-        self.table.setIconSize(QSize(96, 54))
-        self.table.verticalHeader().setDefaultSectionSize(60)
+        self.table.setIconSize(THUMBNAIL_SIZE)
+        self.table.verticalHeader().setDefaultSectionSize(THUMBNAIL_SIZE.height() + 6)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         # The table is display-only: without this, Qt's default edit triggers
